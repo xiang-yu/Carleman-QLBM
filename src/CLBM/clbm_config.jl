@@ -98,3 +98,8 @@ println("  truncation_order = $truncation_order")
 println("  poly_order = $poly_order")
 println("  force_factor = $force_factor")
 println("  ngrid = $ngrid")
+
+if ngrid == 2
+    println("⚠️  ngrid = 2 is a degenerate periodic centered-difference case.")
+    println("   Use ngrid >= 3 for meaningful multigrid collision+streaming validation.")
+end

@@ -2,6 +2,8 @@
 
 This repository contains Julia scripts for testing Carleman-linearized lattice Boltzmann models (CLBM) against reference lattice Boltzmann evolutions.
 
+This README was prepared with assistance from GPT-5.4.
+
 ## Quick Start
 
 From the repository root:
@@ -13,10 +15,10 @@ julia --project=.
 Inside Julia, the three most common entry points are:
 
 ```julia
-include("src/CLBM/clbm_run.jl")
+include("src/CLBM/clbm_multigrid_run.jl")
 ```
 
-Runs the standard CLBM case from the current configuration.
+Runs the primary CLBM driver. For `ngrid = 1`, it preserves the legacy single-point collision test. For `ngrid >= 3`, it runs the multigrid collision+streaming comparison workflow.
 
 ```julia
 include("src/CLBM/plot_multigrid_domain_average.jl")
@@ -70,10 +72,12 @@ Pkg.instantiate()
 To run the standard CLBM script:
 
 ```julia
-include("src/CLBM/clbm_run.jl")
+include("src/CLBM/clbm_multigrid_run.jl")
 ```
 
 This uses the configuration in [src/CLBM/clbm_config.jl](src/CLBM/clbm_config.jl).
+
+The legacy entry point [src/CLBM/clbm_run.jl](src/CLBM/clbm_run.jl) is retained as a thin compatibility wrapper that simply includes [src/CLBM/clbm_multigrid_run.jl](src/CLBM/clbm_multigrid_run.jl).
 
 ## Important note on the multi-grid comparison
 
@@ -162,13 +166,6 @@ This script does the following:
 	- middle row: `|f_m^CLBM - f_m^LBM|`,
 	- bottom row: `|f_m^CLBM - f_m^LBM| / f_m^LBM`.
 
-The legend labels are intentionally simple:
-
-- `LBM`
-- `CLBM`
-
-These plots compare the particle distribution functions `f_1`, `f_2`, and `f_3`, not macroscopic velocity.
-
 ### Numerical summaries printed by the plotting script
 
 The script prints the maximum domain-averaged absolute difference and the per-component maxima. A recent run produced:
@@ -239,7 +236,7 @@ Interpretation notes:
 ### Run a standard CLBM case
 
 ```julia
-include("src/CLBM/clbm_run.jl")
+include("src/CLBM/clbm_multigrid_run.jl")
 ```
 
 Use this for the standard configured CLBM run and plot.
@@ -281,7 +278,8 @@ Use this to get:
 
 ## Relevant files
 
-- [src/CLBM/clbm_run.jl](src/CLBM/clbm_run.jl): main CLBM run script
+- [src/CLBM/clbm_multigrid_run.jl](src/CLBM/clbm_multigrid_run.jl): primary CLBM operational driver
+- [src/CLBM/clbm_run.jl](src/CLBM/clbm_run.jl): compatibility wrapper for the operational driver
 - [src/CLBM/clbm_config.jl](src/CLBM/clbm_config.jl): shared configuration
 - [src/CLBM/unit_tests_minimal.jl](src/CLBM/unit_tests_minimal.jl): minimal regression tests
 - [src/CLBM/plot_multigrid_domain_average.jl](src/CLBM/plot_multigrid_domain_average.jl): domain-averaged multi-grid comparison plot
