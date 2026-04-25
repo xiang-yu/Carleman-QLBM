@@ -231,6 +231,122 @@ Interpretation notes:
 - if both curves grow with time, that reflects accumulated multi-step truncation/time-integration error rather than an operator-level mismatch,
 - for strict implementation validation, rely on the one-step and RHS agreement checks in [src/CLBM/unit_tests_minimal.jl](src/CLBM/unit_tests_minimal.jl).
 
+## 2D Taylor-Green flow workflow
+
+The repository now also contains a 2D D2Q9 Taylor-Green (TG) workflow for:
+
+- a pure numerical LBM baseline,
+- a periodic analytical TG benchmark,
+- a boundary-initialized TG visualization case,
+- an experimental 2D CLBM-vs-LBM comparison driver.
+
+The main files are:
+
+- [src/LBM/tg_d2q9_lbm_run.jl](src/LBM/tg_d2q9_lbm_run.jl): pure numerical D2Q9 TG LBM runner,
+- [src/CLBM/clbm_tg2d_run.jl](src/CLBM/clbm_tg2d_run.jl): 2D CLBM-vs-LBM TG driver,
+- [src/LBM/streaming.jl](src/LBM/streaming.jl): current numerical D2Q9 streaming and wall treatment.
+
+### Periodic TG benchmark against the analytical solution
+
+The periodic Taylor-Green vortex is the exact theory benchmark consistent with the 2D TG setup described in the paper notes (`r_x, r_y \in [-\pi, \pi)`).
+
+The implemented velocity field is:
+
+$$
+u_x = A \sin(r_x)\cos(r_y), \qquad
+u_y = -A \cos(r_x)\sin(r_y).
+$$
+
+The analytical decay used for the numerical LBM benchmark is:
+
+$$
+\exp\left[-\nu\left(\left(\frac{2\pi}{n_x}\right)^2 + \left(\frac{2\pi}{n_y}\right)^2\right)t\right],
+\qquad
+\nu = c_s^2(\tau - 0.5), \quad c_s^2 = \frac{1}{3}.
+$$
+
+Run the periodic benchmark from Julia with:
+
+```julia
+include("src/LBM/tg_d2q9_lbm_run.jl")
+run_tg_d2q9_lbm(
+	nx=16,
+	ny=16,
+	amplitude=0.02,
+	tau_value=0.8,
+	n_time=20,
+	l_noslipBC=false,
+	compare_analytical=true,
+	l_plot=true,
+)
+```
+
+If `output_file` is omitted and `l_plot=true`, the script now saves the figure as a PDF by default to:
+
+- `/Users/xiangyu.li/Documents/git-tex/QC/QCFD-QCLBM/figs/tg_d2q9_periodic_vs_analytical_nx16_ny16_nt20.pdf`
+
+The periodic comparison figure includes:
+
+- numerical and analytical speed fields,
+- numerical velocity vectors,
+- a centerline `u_x` profile,
+- absolute and relative error histories over time.
+
+A recent `16×16`, `tau=0.8`, `A=0.02`, `t=19` periodic run gave:
+
+- `L2 error = 0.00248280363869588`
+- `relative L2 error = 0.019715478854995132`
+- `max abs velocity error = 0.00021907064084869012`
+
+### Boundary-initialized TG visualization case
+
+The boundary-value TG run is not the exact analytical Taylor-Green benchmark. Instead, it is a useful visual baseline using the repository’s current D2Q9 wall treatment:
+
+- periodic in `x`,
+- top/bottom no-slip bounce-back in `y`.
+
+Run it with:
+
+```julia
+include("src/LBM/tg_d2q9_lbm_run.jl")
+run_tg_d2q9_boundary_lbm(
+	nx=16,
+	ny=16,
+	amplitude=0.02,
+	tau_value=0.8,
+	n_time=20,
+	l_plot=true,
+)
+```
+
+By default, this saves a PDF to:
+
+- `/Users/xiangyu.li/Documents/git-tex/QC/QCFD-QCLBM/figs/tg_d2q9_boundary_nx16_ny16_nt20.pdf`
+
+### 2D CLBM TG driver
+
+The 2D CLBM driver is:
+
+- [src/CLBM/clbm_tg2d_run.jl](src/CLBM/clbm_tg2d_run.jl)
+
+It is structured so that:
+
+- the numerical D2Q9 LBM run provides the reference history,
+- symbolic D2Q9 machinery is used only to derive Carleman operators,
+- periodic and boundary-aware streaming operators can be selected on the CLBM side.
+
+Run a small 2D CLBM TG test from Julia with:
+
+```julia
+include("src/CLBM/clbm_tg2d_run.jl")
+main(nx=3, ny=3, amplitude=0.02, local_n_time=4, l_plot=false)
+```
+
+Important note:
+
+- the pure numerical D2Q9 LBM TG benchmark is working and validated against the analytical periodic solution,
+- the full 2D CLBM path is still experimental because symbolic D2Q9 Carleman coefficient generation is much heavier than the 1D D1Q3 workflow.
+
 ## Which script to run for which result
 
 ### Run a standard CLBM case
