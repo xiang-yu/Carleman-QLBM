@@ -29,7 +29,20 @@ include(QCFD_SRC * "LBM/f_initial.jl")
 include(QCFD_SRC * "CLBM/streaming_Carleman.jl")
 include(QCFD_SRC * "CLBM/timeMarching.jl")
 
-function main(; local_n_time=max(n_time, 40), comparison_ngrid=3, output_basename="plot_multigrid_domain_average")
+function multigrid_initial_condition(comparison_ngrid)
+    if comparison_ngrid == 3
+        return vcat(
+            f_ini_test(0.12),
+            f_ini_test(0.00),
+            f_ini_test(-0.08),
+        )
+    end
+
+    velocity_profile = collect(range(0.12, -0.08, length=comparison_ngrid))
+    return reduce(vcat, (f_ini_test(velocity_profile[i]) for i = 1:comparison_ngrid))
+end
+
+function main(; local_n_time=max(n_time, 40), comparison_ngrid=3, output_basename=nothing)
     global ngrid = comparison_ngrid
     global use_sparse = true
 
@@ -40,11 +53,7 @@ function main(; local_n_time=max(n_time, 40), comparison_ngrid=3, output_basenam
     f, omega, u, rho = collision(Q, D, w, e, rho0, lTaylor, lorder2)
     global F1_ngrid, F2_ngrid, F3_ngrid = get_coeff_LBM_Fi_ngrid(poly_order, Q, f, omega, tau_value, comparison_ngrid)
 
-    phi_ini = vcat(
-        f_ini_test(0.12),
-        f_ini_test(0.00),
-        f_ini_test(-0.08),
-    )
+    phi_ini = multigrid_initial_condition(comparison_ngrid)
 
     S_lbm, _ = streaming_operator_D1Q3_interleaved(comparison_ngrid, 1)
     phiT_lbe = timeMarching_direct_LBE_ngrid(phi_ini, dt, local_n_time, F1_ngrid, F2_ngrid, F3_ngrid; S_lbm=S_lbm)
@@ -80,7 +89,11 @@ function main(; local_n_time=max(n_time, 40), comparison_ngrid=3, output_basenam
     suptitle("Domain-averaged CLBM vs LBM, ngrid = $comparison_ngrid, k = $truncation_order")
     tight_layout(rect=(0, 0, 1, 0.96))
 
-    output_dir = get(ENV, "QCFD_QCLBM_FIG_DIR", "/Users/xiangyu.li/Documents/git-tex/QC/QCFD-QCLBM/figs")
+    if output_basename === nothing
+        output_basename = "plot_multigrid_domain_average_D1Q3_ngrid$(comparison_ngrid)_k$(truncation_order)_nt$(local_n_time)"
+    end
+
+    output_dir = get(ENV, "QCFD_QCLBM_FIG_DIR", joinpath(homedir(), "Documents", "git-tex", "QC", "QCFD-QCLBM", "figs"))
     mkpath(output_dir)
     output_file = joinpath(output_dir, output_basename * ".pdf")
     savefig(output_file)
@@ -99,5 +112,3 @@ function main(; local_n_time=max(n_time, 40), comparison_ngrid=3, output_basenam
 
     return output_file, avg_abs_err, avg_rel_err
 end
-
-main()

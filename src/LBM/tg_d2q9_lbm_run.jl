@@ -8,7 +8,7 @@ include(QCFD_SRC * "LBM/lbm_cons.jl")
 include(QCFD_SRC * "LBM/cal_feq.jl")
 include(QCFD_SRC * "LBM/streaming.jl")
 
-const DEFAULT_TEX_FIG_DIR = get(ENV, "QCFD_TEX_FIG_DIR", "/Users/xiangyu.li/Documents/git-tex/QC/QCFD-QCLBM/figs")
+const DEFAULT_TEX_FIG_DIR = get(ENV, "QCFD_TEX_FIG_DIR", joinpath(homedir(), "Documents", "git-tex", "QC", "QCFD-QCLBM", "figs"))
 
 function tg_velocity_field_theory(i, j, nx, ny, amplitude)
     rx = -π + 2π * (i - 1) / nx

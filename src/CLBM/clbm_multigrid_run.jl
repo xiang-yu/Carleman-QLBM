@@ -150,5 +150,3 @@ function main(; comparison_ngrid=ngrid, local_use_sparse=use_sparse, local_n_tim
     println("Running validated multigrid CLBM collision+streaming comparison (ngrid = $comparison_ngrid)")
     return run_multigrid_driver(w, e, f, omega; comparison_ngrid=comparison_ngrid, local_n_time=max(local_n_time, 40), l_plot=l_plot)
 end
-
-main()

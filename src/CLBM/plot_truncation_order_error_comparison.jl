@@ -29,6 +29,19 @@ include(QCFD_SRC * "LBM/f_initial.jl")
 include(QCFD_SRC * "CLBM/streaming_Carleman.jl")
 include(QCFD_SRC * "CLBM/timeMarching.jl")
 
+function multigrid_initial_condition(comparison_ngrid)
+    if comparison_ngrid == 3
+        return vcat(
+            f_ini_test(0.12),
+            f_ini_test(0.00),
+            f_ini_test(-0.08),
+        )
+    end
+
+    velocity_profile = collect(range(0.12, -0.08, length=comparison_ngrid))
+    return reduce(vcat, (f_ini_test(velocity_profile[i]) for i = 1:comparison_ngrid))
+end
+
 function main(; k_values=[3, 4], local_dt=1.0, comparison_ngrid=3, local_n_time=n_time)
     global ngrid = comparison_ngrid
     global use_sparse = true
@@ -40,11 +53,7 @@ function main(; k_values=[3, 4], local_dt=1.0, comparison_ngrid=3, local_n_time=
     f, omega, u, rho = collision(Q, D, w, e, rho0, lTaylor, lorder2)
     global F1_ngrid, F2_ngrid, F3_ngrid = get_coeff_LBM_Fi_ngrid(poly_order, Q, f, omega, tau_value, comparison_ngrid)
 
-    phi_ini = vcat(
-        f_ini_test(0.12),
-        f_ini_test(0.00),
-        f_ini_test(-0.08),
-    )
+    phi_ini = multigrid_initial_condition(comparison_ngrid)
 
     S_lbm, _ = streaming_operator_D1Q3_interleaved(comparison_ngrid, 1)
     phiT_lbe = timeMarching_direct_LBE_ngrid(phi_ini, local_dt, local_n_time, F1_ngrid, F2_ngrid, F3_ngrid; S_lbm=S_lbm)
@@ -118,9 +127,9 @@ function main(; k_values=[3, 4], local_dt=1.0, comparison_ngrid=3, local_n_time=
     suptitle("Truncation-order error comparison, ngrid = $comparison_ngrid")
     tight_layout(rect=(0, 0, 1, 0.95))
 
-    output_dir = get(ENV, "QCFD_QCLBM_FIG_DIR", "/Users/xiangyu.li/Documents/git-tex/QC/QCFD-QCLBM/figs")
+    output_dir = get(ENV, "QCFD_QCLBM_FIG_DIR", joinpath(homedir(), "Documents", "git-tex", "QC", "QCFD-QCLBM", "figs"))
     mkpath(output_dir)
-    output_file = joinpath(output_dir, "plot_truncation_order_error_comparison.pdf")
+    output_file = joinpath(output_dir, "plot_truncation_order_error_comparison_D1Q3.pdf")
     savefig(output_file)
 
     println("dt used for CLBM/LBM comparison = ", local_dt)
@@ -141,4 +150,3 @@ function main(; k_values=[3, 4], local_dt=1.0, comparison_ngrid=3, local_n_time=
     return output_file
 end
 
-main()
