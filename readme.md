@@ -16,18 +16,22 @@ Inside Julia, the three most common entry points are:
 
 ```julia
 include("src/CLBM/clbm_multigrid_run.jl")
+main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, l_plot=true)
 ```
 
 Runs the primary CLBM driver. For `ngrid = 1`, it preserves the legacy single-point collision test. For `ngrid >= 3`, it runs the multigrid collision+streaming comparison workflow.
 
 ```julia
 include("src/CLBM/plot_multigrid_domain_average.jl")
+global truncation_order = 3
+main(local_n_time=100, comparison_ngrid=6)
 ```
 
 Plots the multi-grid domain-averaged `f_1`, `f_2`, `f_3` comparison between `CLBM` and the centered finite-difference `LBM`, plus absolute and relative errors.
 
 ```julia
 include("src/CLBM/plot_truncation_order_error_comparison.jl")
+main(k_values=[3, 4], local_dt=1.0, comparison_ngrid=6, local_n_time=100)
 ```
 
 Plots the domain-averaged absolute and relative error histories for multiple truncation orders `k` at fixed `dt`.
@@ -73,9 +77,15 @@ To run the standard CLBM script:
 
 ```julia
 include("src/CLBM/clbm_multigrid_run.jl")
+main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, l_plot=true)
 ```
 
 This uses the configuration in [src/CLBM/clbm_config.jl](src/CLBM/clbm_config.jl).
+
+Important:
+
+- [src/CLBM/clbm_multigrid_run.jl](src/CLBM/clbm_multigrid_run.jl), [src/CLBM/plot_multigrid_domain_average.jl](src/CLBM/plot_multigrid_domain_average.jl), and [src/CLBM/plot_truncation_order_error_comparison.jl](src/CLBM/plot_truncation_order_error_comparison.jl) no longer auto-run on `include(...)`.
+- After including them, explicitly call `main(...)` with the parameters you want.
 
 The legacy entry point [src/CLBM/clbm_run.jl](src/CLBM/clbm_run.jl) is retained as a thin compatibility wrapper that simply includes [src/CLBM/clbm_multigrid_run.jl](src/CLBM/clbm_multigrid_run.jl).
 
@@ -152,7 +162,17 @@ Run it from Julia with:
 
 ```julia
 include("src/CLBM/plot_multigrid_domain_average.jl")
+global truncation_order = 3
+main(local_n_time=100, comparison_ngrid=6)
 ```
+
+Parameter mapping for this script:
+
+- `comparison_ngrid` sets the D1Q3 spatial grid count,
+- `truncation_order` sets the Carleman truncation order `k`,
+- `local_n_time` sets the number of time steps.
+
+For example, the call above runs the `D1Q3`, `ngrid = 6`, `k = 3`, `nt = 100` case.
 
 This script does the following:
 
@@ -165,6 +185,10 @@ This script does the following:
 	- top row: `⟨f_m⟩` for `LBM` and `CLBM`,
 	- middle row: `|f_m^CLBM - f_m^LBM|`,
 	- bottom row: `|f_m^CLBM - f_m^LBM| / f_m^LBM`.
+
+If `output_basename` is omitted, the output PDF name is generated automatically and includes the model and key parameters, for example:
+
+- `plot_multigrid_domain_average_D1Q3_ngrid6_k3_nt100.pdf`
 
 ### Numerical summaries printed by the plotting script
 
@@ -187,6 +211,7 @@ Run the default comparison from Julia with:
 
 ```julia
 include("src/CLBM/plot_truncation_order_error_comparison.jl")
+main(k_values=[3, 4], local_dt=1.0, comparison_ngrid=6, local_n_time=100)
 ```
 
 By default, this script:
@@ -208,9 +233,9 @@ The plotting styles are chosen so different truncation orders are easy to compar
 - `k = 3`: solid blue line with circle markers,
 - `k = 4`: dashed red line with square markers.
 
-The script saves the PDF automatically to the figures directory as:
+The script saves the PDF automatically to the figures directory. By default, if `QCFD_QCLBM_FIG_DIR` is not set, it uses:
 
-- [plot_truncation_order_error_comparison.pdf](../Documents/git-tex/QC/QCFD-QCLBM/figs/plot_truncation_order_error_comparison.pdf)
+- `$HOME/Documents/git-tex/QC/QCFD-QCLBM/figs/plot_truncation_order_error_comparison_D1Q3.pdf`
 
 You can also rerun the comparison with different parameters from Julia without editing the file:
 
@@ -283,7 +308,7 @@ run_tg_d2q9_lbm(
 
 If `output_file` is omitted and `l_plot=true`, the script now saves the figure as a PDF by default to:
 
-- `/Users/xiangyu.li/Documents/git-tex/QC/QCFD-QCLBM/figs/tg_d2q9_periodic_vs_analytical_nx16_ny16_nt20.pdf`
+- `$HOME/Documents/git-tex/QC/QCFD-QCLBM/figs/tg_d2q9_periodic_vs_analytical_nx16_ny16_nt20.pdf`
 
 The periodic comparison figure includes:
 
@@ -321,7 +346,7 @@ run_tg_d2q9_boundary_lbm(
 
 By default, this saves a PDF to:
 
-- `/Users/xiangyu.li/Documents/git-tex/QC/QCFD-QCLBM/figs/tg_d2q9_boundary_nx16_ny16_nt20.pdf`
+- `$HOME/Documents/git-tex/QC/QCFD-QCLBM/figs/tg_d2q9_boundary_nx16_ny16_nt20.pdf`
 
 ### 2D CLBM TG driver
 
@@ -353,6 +378,7 @@ Important note:
 
 ```julia
 include("src/CLBM/clbm_multigrid_run.jl")
+main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, l_plot=true)
 ```
 
 Use this for the standard configured CLBM run and plot.
@@ -372,7 +398,18 @@ Use this to check:
 
 ```julia
 include("src/CLBM/plot_multigrid_domain_average.jl")
+global truncation_order = 3
+main(local_n_time=100, comparison_ngrid=6)
 ```
+
+### Compare multiple truncation orders
+
+```julia
+include("src/CLBM/plot_truncation_order_error_comparison.jl")
+main(k_values=[3, 4], local_dt=1.0, comparison_ngrid=6, local_n_time=100)
+```
+
+Use this to compare `k` values at fixed `D1Q3` grid size and time horizon.
 
 Use this to get:
 
