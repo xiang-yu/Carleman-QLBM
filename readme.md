@@ -24,6 +24,12 @@ include("src/CLBM/plot_multigrid_domain_average.jl")
 
 Plots the multi-grid domain-averaged `f_1`, `f_2`, `f_3` comparison between `CLBM` and the centered finite-difference `LBM`, plus absolute and relative errors.
 
+```julia
+include("src/CLBM/plot_truncation_order_error_comparison.jl")
+```
+
+Plots the domain-averaged absolute and relative error histories for multiple truncation orders `k` at fixed `dt`.
+
 ```bash
 julia --project=. src/CLBM/unit_tests_minimal.jl
 ```
@@ -176,6 +182,58 @@ Max |Δ⟨f_3⟩| = 0.00022995963960761867
 
 This is a multi-step nonuniform test, so the difference is no longer exactly machine zero. The one-step/RHS regression in `unit_tests_minimal.jl` remains the stricter operator-level check.
 
+## Comparing errors for different truncation orders
+
+The truncation-order comparison script is [src/CLBM/plot_truncation_order_error_comparison.jl](src/CLBM/plot_truncation_order_error_comparison.jl).
+
+Run the default comparison from Julia with:
+
+```julia
+include("src/CLBM/plot_truncation_order_error_comparison.jl")
+```
+
+By default, this script:
+
+- uses the same nonuniform `ngrid = 3` initial condition as the multi-grid regression,
+- fixes `dt = 1.0` in LBM units,
+- compares truncation orders `k = 3` and `k = 4`,
+- computes the direct centered finite-difference n-point LBE once,
+- evolves the CLBM for each requested `k`,
+- plots the domain-averaged absolute and relative errors for `f_1`, `f_2`, and `f_3`.
+
+The figure layout is:
+
+- top row: `|⟨f_m⟩^{CLBM} - ⟨f_m⟩^{LBM}|`,
+- bottom row: `|⟨f_m⟩^{CLBM} - ⟨f_m⟩^{LBM}| / ⟨f_m⟩^{LBM}`.
+
+The plotting styles are chosen so different truncation orders are easy to compare step by step:
+
+- `k = 3`: solid blue line with circle markers,
+- `k = 4`: dashed red line with square markers.
+
+The script saves the PDF automatically to the figures directory as:
+
+- [plot_truncation_order_error_comparison.pdf](../Documents/git-tex/QC/QCFD-QCLBM/figs/plot_truncation_order_error_comparison.pdf)
+
+You can also rerun the comparison with different parameters from Julia without editing the file:
+
+```julia
+include("src/CLBM/plot_truncation_order_error_comparison.jl")
+main(k_values=[3, 4], local_dt=1.0, comparison_ngrid=3, local_n_time=40)
+```
+
+Useful variations include:
+
+- changing `k_values` to compare more truncation orders,
+- increasing `local_n_time` to study long-time error growth,
+- changing `comparison_ngrid` if you want to test a different n-point setup.
+
+Interpretation notes:
+
+- if the `k = 4` curves lie below the `k = 3` curves, the higher-order truncation is improving accuracy for that setup,
+- if both curves grow with time, that reflects accumulated multi-step truncation/time-integration error rather than an operator-level mismatch,
+- for strict implementation validation, rely on the one-step and RHS agreement checks in [src/CLBM/unit_tests_minimal.jl](src/CLBM/unit_tests_minimal.jl).
+
 ## Which script to run for which result
 
 ### Run a standard CLBM case
@@ -209,12 +267,25 @@ Use this to get:
 - absolute error versus time,
 - relative error versus time.
 
+### Compare error histories for different truncation orders
+
+```julia
+include("src/CLBM/plot_truncation_order_error_comparison.jl")
+```
+
+Use this to get:
+
+- `k = 3` versus `k = 4` error curves at fixed `dt = 1`,
+- domain-averaged absolute and relative errors for each `f_m`,
+- a quick visual check of how truncation order affects long-time behavior.
+
 ## Relevant files
 
 - [src/CLBM/clbm_run.jl](src/CLBM/clbm_run.jl): main CLBM run script
 - [src/CLBM/clbm_config.jl](src/CLBM/clbm_config.jl): shared configuration
 - [src/CLBM/unit_tests_minimal.jl](src/CLBM/unit_tests_minimal.jl): minimal regression tests
 - [src/CLBM/plot_multigrid_domain_average.jl](src/CLBM/plot_multigrid_domain_average.jl): domain-averaged multi-grid comparison plot
+- [src/CLBM/plot_truncation_order_error_comparison.jl](src/CLBM/plot_truncation_order_error_comparison.jl): truncation-order error comparison plot
 - [src/CLBM/timeMarching.jl](src/CLBM/timeMarching.jl): CLBM and direct n-point time marching helpers
 - [src/CLBM/streaming_Carleman.jl](src/CLBM/streaming_Carleman.jl): centered finite-difference streaming operators
 - [src/LBM/streaming.jl](src/LBM/streaming.jl): exact lattice-shift streaming implementation
