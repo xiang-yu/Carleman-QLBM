@@ -5,16 +5,22 @@ QCFD_HOME = ENV["QCFD_HOME"]
 using HDF5
 using PyPlot
 
+println("PyPlot backend: ", PyPlot.matplotlib.get_backend())
+
 # Configure matplotlib for CI/headless environments
-try
-    if !haskey(ENV, "DISPLAY") || ENV["DISPLAY"] == ""
-        # No display available, use non-interactive backend
-        matplotlib.pyplot.switch_backend("Agg")
-        println("Using non-interactive plotting backend for headless environment")
-    end
-catch
-    # Fallback if backend switching fails
-end
+# try
+#     is_headless_linux = Sys.islinux() &&
+#         get(ENV, "DISPLAY", "") == "" &&
+#         get(ENV, "WAYLAND_DISPLAY", "") == ""
+
+#     if is_headless_linux
+#         # No display available, use non-interactive backend
+#         matplotlib.pyplot.switch_backend("Agg")
+#         println("Using non-interactive plotting backend for headless environment")
+#     end
+# catch
+#     # Fallback if backend switching fails
+# end
 
 include(QCFD_HOME * "/visualization/plot_kit.jl")
 
@@ -69,7 +75,8 @@ end
 
 title("CLBM-D1Q3, τ=" *string(tau_value)  * ", u_0 = 0.1")
 
-# Ensure the plot is displayed
+# Ensure the plot is displayed in Julia/VS Code environments
+display(gcf())
 show()
 
 lsavef = false

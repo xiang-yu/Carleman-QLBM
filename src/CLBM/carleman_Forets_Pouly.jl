@@ -7,7 +7,11 @@ using PyPlot
 
 # Configure matplotlib for CI/headless environments
 try
-    if !haskey(ENV, "DISPLAY") || ENV["DISPLAY"] == ""
+    is_headless_linux = Sys.islinux() &&
+        get(ENV, "DISPLAY", "") == "" &&
+        get(ENV, "WAYLAND_DISPLAY", "") == ""
+
+    if is_headless_linux
         # No display available, use non-interactive backend
         matplotlib.pyplot.switch_backend("Agg")
         println("Using non-interactive plotting backend for headless environment")
