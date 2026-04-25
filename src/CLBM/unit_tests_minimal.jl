@@ -27,6 +27,7 @@ include(QCFD_SRC * "LBM/lbm_cons.jl")
 include(QCFD_SRC * "LBM/lbm_const_sym.jl")
 include(QCFD_SRC * "LBM/forcing.jl")
 include(QCFD_SRC * "LBM/f_initial.jl")
+include(QCFD_SRC * "CLBM/streaming_Carleman.jl")
 include(QCFD_SRC * "CLBM/timeMarching.jl")
 
 @testset "CLBM Minimal Tests" begin
@@ -96,6 +97,97 @@ include(QCFD_SRC * "CLBM/timeMarching.jl")
         @test length(V) == expected_length
         
         println("✅ Initial conditions work correctly")
+    end
+
+    @testset "ngrid=2 Regression" begin
+        old_ngrid = ngrid
+        old_use_sparse = use_sparse
+        old_n_time = n_time
+
+        try
+            global ngrid = 2
+            global use_sparse = true
+            local_n_time = 10
+
+            w, e, w_val, e_val = lbm_const_sym()
+            global w_value = w_val
+            global e_value = e_val
+
+            f, omega, u, rho = collision(Q, D, w, e, rho0, lTaylor, lorder2)
+            global F1_ngrid, F2_ngrid, F3_ngrid = get_coeff_LBM_Fi_ngrid(poly_order, Q, f, omega, tau_value, ngrid)
+
+            f_ini = f_ini_test(u0)
+            phi_ini = get_phi(f_ini, ngrid)
+
+            F1_single = F_carlemanOrder_collision(Q, 1, f, omega, tau_value)
+            F2_single = F_carlemanOrder_collision(Q, 2, f, omega, tau_value)
+            F3_single = F_carlemanOrder_collision(Q, 3, f, omega, tau_value)
+            single_rhs = F1_single * f_ini + F2_single * kron(f_ini, f_ini) + F3_single * kron(f_ini, kron(f_ini, f_ini))
+            multi_rhs = F1_ngrid * phi_ini + F2_ngrid * kron(phi_ini, phi_ini) + F3_ngrid * kron(phi_ini, kron(phi_ini, phi_ini))
+
+            @test multi_rhs[1:Q] ≈ single_rhs atol=1e-12 rtol=1e-12
+            @test multi_rhs[Q+1:2Q] ≈ single_rhs atol=1e-12 rtol=1e-12
+
+            VT_f, VT, uT, fT = timeMarching_collision_CLBM_sparse(
+                omega, f, tau_value, Q, truncation_order, e_val, dt, f_ini, local_n_time, false
+            )
+
+            @test VT_f[:, end] ≈ fT[:, end] atol=1e-12 rtol=1e-12
+            @test minimum(VT_f) ≥ -1e-12
+
+            println("✅ ngrid=2 periodic CLBM matches LBM")
+        finally
+            global ngrid = old_ngrid
+            global use_sparse = old_use_sparse
+            global n_time = old_n_time
+        end
+    end
+
+    @testset "ngrid=3 Nonuniform Streaming+Collision" begin
+        old_ngrid = ngrid
+        old_use_sparse = use_sparse
+
+        try
+            global ngrid = 3
+            global use_sparse = true
+
+            w, e, w_val, e_val = lbm_const_sym()
+            global w_value = w_val
+            global e_value = e_val
+
+            f, omega, u, rho = collision(Q, D, w, e, rho0, lTaylor, lorder2)
+            global F1_ngrid, F2_ngrid, F3_ngrid = get_coeff_LBM_Fi_ngrid(poly_order, Q, f, omega, tau_value, ngrid)
+
+            phi_ini = vcat(
+                f_ini_test(0.12),
+                f_ini_test(0.00),
+                f_ini_test(-0.08),
+            )
+
+            S_lbm, _ = streaming_operator_D1Q3_interleaved(ngrid, 1)
+            direct_rhs = -S_lbm * phi_ini +
+                F1_ngrid * phi_ini +
+                F2_ngrid * kron(phi_ini, phi_ini) +
+                F3_ngrid * kron(phi_ini, kron(phi_ini, phi_ini))
+
+            C_sparse, bt_sparse, _ = carleman_C_sparse(Q, truncation_order, poly_order, f, omega, tau_value, force_factor, w_val, e_val)
+            S_sparse = build_streaming_carleman_operator_sparse(Q, truncation_order, poly_order, ngrid)
+            V0 = Float64.(carleman_V(phi_ini, truncation_order))
+            carleman_rhs = Array((C_sparse - S_sparse) * V0 + bt_sparse)
+
+            @test carleman_rhs[1:Q*ngrid] ≈ direct_rhs atol=1e-12 rtol=1e-12
+
+            direct_next = phi_ini + dt * direct_rhs
+            carleman_next = phi_ini + dt * carleman_rhs[1:Q*ngrid]
+
+            @test carleman_next ≈ direct_next atol=1e-12 rtol=1e-12
+            @test all(isfinite.(carleman_next))
+
+            println("✅ ngrid=3 nonuniform centered-difference streaming + collision matches direct n-point LBE")
+        finally
+            global ngrid = old_ngrid
+            global use_sparse = old_use_sparse
+        end
     end
 end
 

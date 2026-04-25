@@ -1,4 +1,78 @@
 using SparseArrays
+using Statistics
+
+function direct_lbe_rhs_ngrid(phi, S_lbm, F1_ngrid, F2_ngrid, F3_ngrid)
+    return -S_lbm * phi +
+        F1_ngrid * phi +
+        F2_ngrid * kron(phi, phi) +
+        F3_ngrid * kron(phi, kron(phi, phi))
+end
+
+function timeMarching_direct_LBE_ngrid(phi_ini, dt, n_time, F1_ngrid, F2_ngrid, F3_ngrid; S_lbm=nothing)
+    if S_lbm === nothing
+        S_lbm, _ = streaming_operator_D1Q3_interleaved(ngrid, 1)
+    end
+
+    phiT = zeros(length(phi_ini), n_time)
+    phiT[:, 1] = Float64.(phi_ini)
+
+    for nt = 2:n_time
+        rhs = direct_lbe_rhs_ngrid(phiT[:, nt - 1], S_lbm, F1_ngrid, F2_ngrid, F3_ngrid)
+        phiT[:, nt] = phiT[:, nt - 1] + dt * rhs
+    end
+
+    return phiT
+end
+
+function timeMarching_state_CLBM_sparse(omega, f, tau_value, Q, truncation_order, dt, phi_ini, n_time)
+    V0 = Float64.(carleman_V(phi_ini, truncation_order))
+
+    C_sparse, bt, _ = carleman_C_sparse(Q, truncation_order, poly_order, f, omega, tau_value, force_factor, w_value, e_value)
+    if ngrid > 1
+        C_sparse = C_sparse - build_streaming_carleman_operator_sparse(Q, truncation_order, poly_order, ngrid)
+    end
+
+    VT = zeros(length(V0), n_time)
+    VT[:, 1] = V0
+
+    phiT = zeros(length(phi_ini), n_time)
+    phiT[:, 1] = Float64.(phi_ini)
+
+    for nt = 2:n_time
+        VT[:, nt] = (C_sparse * VT[:, nt - 1] + bt) .* dt .+ VT[:, nt - 1]
+        phiT[:, nt] = VT[1:length(phi_ini), nt]
+    end
+
+    return phiT, VT
+end
+
+function domain_average_distribution_history(phiT, Q, ngrid)
+    avg_fT = zeros(Q, size(phiT, 2))
+
+    for nt = 1:size(phiT, 2)
+        avg_fT[:, nt] = vec(mean(reshape(phiT[:, nt], Q, ngrid), dims=2))
+    end
+
+    return avg_fT
+end
+
+function build_streaming_carleman_operator(Q, truncation_order, poly_order, ngrid)
+    if ngrid <= 1
+        return nothing
+    end
+
+    S_lbm, _ = streaming_operator_D1Q3_interleaved(ngrid, 1)
+    return carleman_S(Q, truncation_order, poly_order, ngrid, S_lbm)
+end
+
+function build_streaming_carleman_operator_sparse(Q, truncation_order, poly_order, ngrid)
+    if ngrid <= 1
+        return nothing
+    end
+
+    S_lbm, _ = streaming_operator_D1Q3_interleaved(ngrid, 1)
+    return sparse(carleman_S(Q, truncation_order, poly_order, ngrid, S_lbm))
+end
 
 function timeMarching_collision(omega, f, f_ini, tau_value, e_value, dt,  n_time, l_plot)
     omega_sub = LBM_const_subs(omega, tau_value)
@@ -183,7 +257,13 @@ function timeMarching_collision_CLBM(omega, f, tau_value, Q, C, truncation_order
     # Also need to compute bt and F0 once (not in the time loop)
     _, bt, F0 = carleman_C(Q, truncation_order, poly_order, f, omega, tau_value, force_factor, w_value, e_value)
 
-    VT = zeros(size(C)[1], n_time)
+    C_eff = if ngrid > 1
+        C .- build_streaming_carleman_operator(Q, truncation_order, poly_order, ngrid)
+    else
+        C
+    end
+
+    VT = zeros(size(C_eff)[1], n_time)
     VT[:, 1] = V0
 
     VT_f = zeros(Q, n_time)
@@ -202,7 +282,7 @@ function timeMarching_collision_CLBM(omega, f, tau_value, Q, C, truncation_order
     #---time marching---
     for nt = 2:n_time
         # FIXED: Use passed matrix C and computed bt, F0 - no reconstruction needed
-        VT[:, nt] = (C * VT[:, nt - 1] + bt) .* dt .+ VT[:, nt - 1]
+        VT[:, nt] = (C_eff * VT[:, nt - 1] + bt) .* dt .+ VT[:, nt - 1]
         _, uT[nt] = lbm_u(e_value, VT[1:Q, nt]) 
         
         #---LBM---
@@ -225,6 +305,9 @@ function timeMarching_collision_CLBM_sparse(omega, f, tau_value, Q, truncation_o
 
     # FIXED: Build sparse matrix ONCE outside the time loop for efficiency
     C_sparse, bt, F0 = carleman_C_sparse(Q, truncation_order, poly_order, f, omega, tau_value, force_factor, w_value, e_value)
+    if ngrid > 1
+        C_sparse = C_sparse - build_streaming_carleman_operator_sparse(Q, truncation_order, poly_order, ngrid)
+    end
 
     # Initialize with proper size based on V0 length
     VT = zeros(length(V0), n_time)
@@ -345,19 +428,16 @@ function carleman_transferA_sparse(ind_row, ind_col, Q, f, omega, tau_value, for
     """Sparse version of carleman_transferA"""
     if ind_row <= ind_col 
         i = ind_row
-        if ngrid > 1
-            j = ind_col
-        else
-            j = Int(ind_col - (i - 1))
-        end
+        j = Int(ind_col - (i - 1))
         A = transferA_ngrid_sparse(i, j, Q, ngrid)
     else
        # The A_{i+j-1}^i with i >= 1 and j = 0
         i = ind_row 
         j = i - 1 
         if ngrid > 1
-            A = transferA_ngrid_sparse(i, j, Q, ngrid)
-            A = spzeros(size(A)...)  # Return sparse zero matrix
+            row_dim = (Q * ngrid)^i
+            col_dim = (Q * ngrid)^(i - 1)
+            A = spzeros(row_dim, col_dim)
         else
             # Use sparse version for F0 term
             A = sum_Kron_kth_identity_sparse(F0, i, Q * ngrid)

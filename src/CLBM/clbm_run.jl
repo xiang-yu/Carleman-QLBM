@@ -5,8 +5,6 @@ QCFD_HOME = ENV["QCFD_HOME"]
 using HDF5
 using PyPlot
 
-println("PyPlot backend: ", PyPlot.matplotlib.get_backend())
-
 # Configure matplotlib for CI/headless environments
 # try
 #     is_headless_linux = Sys.islinux() &&

@@ -3,7 +3,7 @@
 
 # Global simulation parameters
 global tau_value = 1.0
-global n_time = 100
+global n_time = 10
 global dt = tau_value / 10
 
 # Domain parameters  
@@ -12,7 +12,7 @@ global LY = 1
 global LZ = 1
 
 # Grid parameters
-global ngrid = 1
+global ngrid = 2
 
 # true: Use sparse matrices (recommended for ngrid > 1)
 # false: Use dense matrices (only feasible for small problems)

@@ -10,23 +10,33 @@ function cal_delta_alpha(which_alpha, ngrid)
     return delta_alpha
 end
 
-function coeff_LBM_Fi_xalpha(Fj, which_alpha, ngrid)
-    # F^(k) is a Q × Q^k matrix of constant coefficients of the polynomial combinations of f_m
-    delta_alpha = cal_delta_alpha(which_alpha, ngrid)
-    F_xalpha = kron(Fj, delta_alpha)
+function local_selector_matrix(which_alpha, Q, ngrid)
+    selector = zeros(Q, Q * ngrid)
+    ind_s = (which_alpha - 1) * Q + 1
+    ind_e = which_alpha * Q
+    selector[:, ind_s:ind_e] = Matrix(1.0I, Q, Q)
+    return selector
+end
+
+function coeff_LBM_Fi_xalpha(Fj, which_alpha, ngrid, order)
+    # F^(k)(x_alpha) acts on phi^[k] with dimension (nQ)^k, while remaining local in x.
+    selector_alpha = local_selector_matrix(which_alpha, size(Fj, 1), ngrid)
+    selector_alpha_k = Kron_kth(selector_alpha, order)
+    F_xalpha = Fj * selector_alpha_k
     return F_xalpha
 end
 
 function coeff_LBM_Fi_ngrid(Q, j, f, omega, tau_value, ngrid)
-    len_F_xalpha = ngrid * Q
-    Fj_ngrid = zeros(ngrid * len_F_xalpha, Q^j)
-    # F^(k) (xalpha) a nQ × Q^k matrix of constant coefficients of the polynomial combinations of f_m
-    # F^(k) (x) is a n^2 Q × Q^k matrix of constant coefficients of the polynomial combinations of f_m
+    row_dim = ngrid * Q
+    col_dim = (ngrid * Q)^j
+    Fj_ngrid = zeros(row_dim, col_dim)
+    # F^(k)(x_alpha) is a Q × (nQ)^k matrix selecting only local monomials at x_alpha.
+    # F^(k)(x) is the n-point collision operator with size nQ × (nQ)^k.
     Fj = F_carlemanOrder_collision(Q, j, f, omega, tau_value)
     for i = 1 : ngrid
-        F_xalpha = coeff_LBM_Fi_xalpha(Fj, i, ngrid)
-        ind_s = (i - 1) * len_F_xalpha + 1
-        ind_e = i * len_F_xalpha
+        F_xalpha = coeff_LBM_Fi_xalpha(Fj, i, ngrid, j)
+        ind_s = (i - 1) * Q + 1
+        ind_e = i * Q
         Fj_ngrid[ind_s:ind_e,:] = F_xalpha
     end
     return Fj, Fj_ngrid
@@ -70,22 +80,10 @@ end
 
 
 function get_phi(f, ngrid)
-    phi = []
-    for i = 1:ngrid
-        phi_alpha = coeff_LBM_Fi_xalpha(f, i, ngrid)
-        phi = append!(phi, phi_alpha)
-    end
-    return phi
+    return vcat([collect(f) for _ = 1:ngrid]...)
 end
 
 function get_S_Fj(S, ngrid)
-    #=
-    Since Fj is broadcasted to n-point, i.e., Fj(x) = Fj(x_alpha) * delta_alpha, we need to have a S * delta_alpha version with j = 1 to match the dimension n^2Q * n^2Q of phi.  
-    =#
-    S_Fj = coeff_LBM_Fi_xalpha(S, 1, ngrid)
-    for i = 2:ngrid
-        S_alpha = coeff_LBM_Fi_xalpha(S, i, ngrid)
-        S_Fj = hcat(S_Fj, S_alpha)
-    end
-    return S_Fj
+    # Streaming is already the full nonlocal n-point linear operator S on phi(x).
+    return S
 end
