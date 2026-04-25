@@ -115,7 +115,8 @@ function main(; k_values=[3, 4], local_dt=1.0, comparison_ngrid=3, local_n_time=
         ylabel(latexstring("|\\langle f_{$m} \\rangle^{\\mathrm{CLBM}} - \\langle f_{$m} \\rangle^{\\mathrm{LBM}}| / \\langle f_{$m} \\rangle^{\\mathrm{LBM}}"))
     end
 
-    tight_layout()
+    suptitle("Truncation-order error comparison, ngrid = $comparison_ngrid")
+    tight_layout(rect=(0, 0, 1, 0.95))
 
     output_dir = get(ENV, "QCFD_QCLBM_FIG_DIR", "/Users/xiangyu.li/Documents/git-tex/QC/QCFD-QCLBM/figs")
     mkpath(output_dir)

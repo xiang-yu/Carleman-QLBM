@@ -77,7 +77,8 @@ function main(; local_n_time=max(n_time, 40), comparison_ngrid=3, output_basenam
         xlabel("Time step")
         ylabel(latexstring("|\\langle f_{$m} \\rangle^{\\mathrm{CLBM}} - \\langle f_{$m} \\rangle^{\\mathrm{LBM}}| / \\langle f_{$m} \\rangle^{\\mathrm{LBM}}"))
     end
-    tight_layout()
+    suptitle("Domain-averaged CLBM vs LBM, ngrid = $comparison_ngrid, k = $truncation_order")
+    tight_layout(rect=(0, 0, 1, 0.96))
 
     output_dir = get(ENV, "QCFD_QCLBM_FIG_DIR", "/Users/xiangyu.li/Documents/git-tex/QC/QCFD-QCLBM/figs")
     mkpath(output_dir)

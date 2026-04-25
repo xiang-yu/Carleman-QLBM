@@ -2,10 +2,14 @@ using SparseArrays
 using Statistics
 
 function direct_lbe_rhs_ngrid(phi, S_lbm, F1_ngrid, F2_ngrid, F3_ngrid)
-    return -S_lbm * phi +
-        F1_ngrid * phi +
-        F2_ngrid * kron(phi, phi) +
-        F3_ngrid * kron(phi, kron(phi, phi))
+    rhs = -S_lbm * phi + F1_ngrid * phi
+    if F2_ngrid !== nothing
+        rhs += F2_ngrid * kron(phi, phi)
+    end
+    if F3_ngrid !== nothing
+        rhs += F3_ngrid * kron(phi, kron(phi, phi))
+    end
+    return rhs
 end
 
 function timeMarching_direct_LBE_ngrid(phi_ini, dt, n_time, F1_ngrid, F2_ngrid, F3_ngrid; S_lbm=nothing)
@@ -24,12 +28,12 @@ function timeMarching_direct_LBE_ngrid(phi_ini, dt, n_time, F1_ngrid, F2_ngrid, 
     return phiT
 end
 
-function timeMarching_state_CLBM_sparse(omega, f, tau_value, Q, truncation_order, dt, phi_ini, n_time)
+function timeMarching_state_CLBM_sparse(omega, f, tau_value, Q, truncation_order, dt, phi_ini, n_time; S_lbm=nothing, nspatial=ngrid)
     V0 = Float64.(carleman_V(phi_ini, truncation_order))
 
     C_sparse, bt, _ = carleman_C_sparse(Q, truncation_order, poly_order, f, omega, tau_value, force_factor, w_value, e_value)
-    if ngrid > 1
-        C_sparse = C_sparse - build_streaming_carleman_operator_sparse(Q, truncation_order, poly_order, ngrid)
+    if nspatial > 1
+        C_sparse = C_sparse - build_streaming_carleman_operator_sparse(Q, truncation_order, poly_order, nspatial; S_lbm=S_lbm)
     end
 
     VT = zeros(length(V0), n_time)
@@ -56,22 +60,22 @@ function domain_average_distribution_history(phiT, Q, ngrid)
     return avg_fT
 end
 
-function build_streaming_carleman_operator(Q, truncation_order, poly_order, ngrid)
+function build_streaming_carleman_operator(Q, truncation_order, poly_order, ngrid; S_lbm=nothing)
     if ngrid <= 1
         return nothing
     end
 
-    S_lbm, _ = streaming_operator_D1Q3_interleaved(ngrid, 1)
-    return carleman_S(Q, truncation_order, poly_order, ngrid, S_lbm)
+    streaming_matrix = S_lbm === nothing ? streaming_operator_D1Q3_interleaved(ngrid, 1)[1] : S_lbm
+    return carleman_S(Q, truncation_order, poly_order, ngrid, streaming_matrix)
 end
 
-function build_streaming_carleman_operator_sparse(Q, truncation_order, poly_order, ngrid)
+function build_streaming_carleman_operator_sparse(Q, truncation_order, poly_order, ngrid; S_lbm=nothing)
     if ngrid <= 1
         return nothing
     end
 
-    S_lbm, _ = streaming_operator_D1Q3_interleaved(ngrid, 1)
-    return sparse(carleman_S(Q, truncation_order, poly_order, ngrid, S_lbm))
+    streaming_matrix = S_lbm === nothing ? streaming_operator_D1Q3_interleaved(ngrid, 1)[1] : S_lbm
+    return sparse(carleman_S(Q, truncation_order, poly_order, ngrid, streaming_matrix))
 end
 
 function timeMarching_collision(omega, f, f_ini, tau_value, e_value, dt,  n_time, l_plot)

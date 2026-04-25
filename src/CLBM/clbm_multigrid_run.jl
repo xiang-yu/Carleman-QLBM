@@ -114,7 +114,8 @@ function run_multigrid_driver(w, e, f, omega; comparison_ngrid=ngrid, local_n_ti
             xlabel("Time step")
             ylabel(latexstring("|\\langle f_{$m} \\rangle^{\\mathrm{CLBM}} - \\langle f_{$m} \\rangle^{\\mathrm{LBM}}| / \\langle f_{$m} \\rangle^{\\mathrm{LBM}}"))
         end
-        tight_layout()
+        suptitle("ngrid = $comparison_ngrid, k = $truncation_order")
+        tight_layout(rect=(0, 0, 1, 0.96))
         display(gcf())
         show()
     end

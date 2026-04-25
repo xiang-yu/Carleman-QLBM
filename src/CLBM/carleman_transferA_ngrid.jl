@@ -43,14 +43,22 @@ function coeff_LBM_Fi_ngrid(Q, j, f, omega, tau_value, ngrid)
 end
 
 function get_coeff_LBM_Fi_ngrid(poly_order, Q, f, omega, tau_value, ngrid) 
-    upper_order = 3
-    if poly_order != upper_order
-        error("poly_order must be equal to upper_order")
-    else    
-        F1, F1_ngrid = coeff_LBM_Fi_ngrid(Q, upper_order - 2, f, omega, tau_value, ngrid)
-        F2, F2_ngrid = coeff_LBM_Fi_ngrid(Q, upper_order - 1, f, omega, tau_value, ngrid)
-        F3, F3_ngrid = coeff_LBM_Fi_ngrid(Q, upper_order, f, omega, tau_value, ngrid)
+    if poly_order < 1 || poly_order > 3
+        error("poly_order must be 1, 2, or 3")
     end
+
+    _, F1_ngrid = coeff_LBM_Fi_ngrid(Q, 1, f, omega, tau_value, ngrid)
+    F2_ngrid = nothing
+    F3_ngrid = nothing
+
+    if poly_order >= 2
+        _, F2_ngrid = coeff_LBM_Fi_ngrid(Q, 2, f, omega, tau_value, ngrid)
+    end
+
+    if poly_order >= 3
+        _, F3_ngrid = coeff_LBM_Fi_ngrid(Q, 3, f, omega, tau_value, ngrid)
+    end
+
     return F1_ngrid, F2_ngrid, F3_ngrid
 end
 

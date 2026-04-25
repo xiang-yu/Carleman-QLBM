@@ -11,8 +11,23 @@ end
 
 function lbm_u(e, f)
     rho = sum(f)
-    u = sum(e .* f) / rho
+    if e isa AbstractVector && !isempty(e) && first(e) isa AbstractVector
+        u = [sum(ei[d] * fi for (ei, fi) in zip(e, f)) / rho for d = 1:length(first(e))]
+    else
+        u = sum(e .* f) / rho
+    end
     return rho, u
+end
+
+function lbm_dot_velocity(e, vector_state)
+    return [sum(ei[d] * vector_state[d] for d = 1:length(vector_state)) for ei in e]
+end
+
+function lbm_expand_state(state, f)
+    if state isa AbstractVector
+        return [collect(expand(component), f) for component in state]
+    end
+    return collect(expand(state), f)
 end
 
 function collision(Q, D, w, e, rho, lTaylor, lorder2)
@@ -35,27 +50,31 @@ _, _, _, _, a, b, c, d, a_value, b_value, c_value, d_value = lbm_const_sym()
        rho = sum(f); #2022-09-21/XYLI
     end
 
-    if lTaylor == true
-        u = sum(e .* f) * (2-rho)
+    momentum = if D == 1
+        sum(e .* f)
     else
-        u = sum(e .* f) / rho
+        [sum(ei[dim] * fi for (ei, fi) in zip(e, f)) for dim = 1:D]
     end
-    
-    u = expand(u)
-    u = collect(u,f)
 
     if lTaylor == true
-        sum_e_f = sum(e .* f)
-        eiu = e .* sum_e_f
-        eiu2 = eiu .^2
-      #  feq = w .* (rho .+ (3/c) .* eiu + (9/(2*c^2)) .* (2-rho) .* (eiu2) .- (3/(2*c^2)) .* (2-rho) .* sum_e_f .^2) 
-        feq = w .* (a * rho .+ b .* eiu + c .* (2-rho) .* (eiu2) .+ d .* (2-rho) .* sum_e_f .^2) 
+        u = D == 1 ? momentum * (2 - rho) : [momentum[dim] * (2 - rho) for dim = 1:D]
     else
-        eiu = e.*u
+        u = D == 1 ? momentum / rho : [momentum[dim] / rho for dim = 1:D]
+    end
+
+    u = lbm_expand_state(u, f)
+
+    if lTaylor == true
+        sum_e_f = momentum
+        eiu = D == 1 ? e .* sum_e_f : lbm_dot_velocity(e, sum_e_f)
+        eiu2 = eiu .^2
+        momentum_sq = D == 1 ? sum_e_f .^ 2 : sum(component^2 for component in sum_e_f)
+        feq = w .* (a * rho .+ b .* eiu + c .* (2-rho) .* (eiu2) .+ d .* (2-rho) .* momentum_sq)
+    else
+        eiu = D == 1 ? e .* u : lbm_dot_velocity(e, u)
         eiu2 = eiu.^2
-        u2 = sum(u.*u)
-       # feq = w.*rho .+ rho.*(w.*((3/c).*eiu+(9/(2*c^2)).*(eiu2).-(3/(2*c^2)).*u2)) 
-        feq = w .* rho .+ rho .* (w .* (b .* eiu .+ c .* (eiu2) .+ d .* u2)) 
+        u2 = D == 1 ? u^2 : sum(component^2 for component in u)
+        feq = w .* rho .+ rho .* (w .* (b .* eiu .+ c .* (eiu2) .+ d .* u2))
     end
     feq = [expand(i) for i in feq]
 
