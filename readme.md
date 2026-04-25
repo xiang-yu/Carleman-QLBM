@@ -1,10 +1,7 @@
-In your home directory,
-* `mkdir QCFD`
-and download `CLBM_ZhixingSong.tar.gz` and untar it.
-You may rename this folder to whatever you want but make sure it is consistent with `QCFD_HOME`
+* Download `git clone git@github.com:xiang-yu/Carleman-QLBM.git` into your home directory
 * `vi ~/.bashrc` and add the following,
 ```bash
-export QCFD_HOME=$HOME/QCFD/CLBM_ZhixinSong/
+export QCFD_HOME=$HOME/Carleman-QLBM/
 export QCFD_SRC=$QCFD_HOME/src/
 ```
 then
@@ -15,5 +12,6 @@ then
 ```julia
 julia> using Pkg
 julia> Pkg.activate("../..")  # Activate the main project environment from src/CLBM
+julia> Pkg.instantiate()
 julia> include("clbm_run.jl")       
 ```
