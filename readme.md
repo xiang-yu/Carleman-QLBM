@@ -223,16 +223,6 @@ By default, this script:
 - evolves the CLBM for each requested `k`,
 - plots the domain-averaged absolute and relative errors for `f_1`, `f_2`, and `f_3`.
 
-The figure layout is:
-
-- top row: `|⟨f_m⟩^{CLBM} - ⟨f_m⟩^{LBM}|`,
-- bottom row: `|⟨f_m⟩^{CLBM} - ⟨f_m⟩^{LBM}| / ⟨f_m⟩^{LBM}`.
-
-The plotting styles are chosen so different truncation orders are easy to compare step by step:
-
-- `k = 3`: solid blue line with circle markers,
-- `k = 4`: dashed red line with square markers.
-
 The script saves the PDF automatically to the figures directory. By default, if `QCFD_QCLBM_FIG_DIR` is not set, it uses:
 
 - `$HOME/Documents/git-tex/QC/QCFD-QCLBM/figs/plot_truncation_order_error_comparison_D1Q3.pdf`
@@ -252,8 +242,6 @@ Useful variations include:
 
 Interpretation notes:
 
-- if the `k = 4` curves lie below the `k = 3` curves, the higher-order truncation is improving accuracy for that setup,
-- if both curves grow with time, that reflects accumulated multi-step truncation/time-integration error rather than an operator-level mismatch,
 - for strict implementation validation, rely on the one-step and RHS agreement checks in [src/CLBM/unit_tests_minimal.jl](src/CLBM/unit_tests_minimal.jl).
 
 ## 2D Taylor-Green flow workflow
