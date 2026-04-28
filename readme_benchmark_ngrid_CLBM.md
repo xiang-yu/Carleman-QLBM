@@ -548,3 +548,68 @@ The repository now has a meaningful layered benchmark story:
 - **but D2Q9 long-time quantitative accuracy remains an open development target.**
 
 That separation between **operator correctness** and **numerical accuracy** is intentional and should be preserved in future benchmark updates.
+
+---
+
+## 10. Re-benchmark by Claude Opus 4.7
+
+Independent re-validation and resource estimation performed 2026-04-28 ahead of a proposed `nx = ny = 16` D2Q9 production run on a supercomputer. All three validation scripts were re-run on the current `master`; resource estimates for the target grid were calibrated against measured sparse-operator sizes at `nx = 3` and `nx = 4`.
+
+### 10.1 Operator-level re-validation
+
+| Script | Result | Scope |
+|---|---|---|
+| `src/CLBM/verify_carleman_construction.jl` | **34 / 34 pass**, 12.7 s | D2Q9 collision: Kronecker ordering, `F^(1/2/3)` polynomial decomposition, Leibniz transfer blocks, `n`-point locality, assembled collision Carleman matrix |
+| `src/CLBM/verify_streaming_and_coupling.jl` | **53 / 53 pass**, 6.7 s | D1Q3 stages 1–7 and D2Q9 stages 1–5: lifted streaming product rule, coupled `C − S` first-level RHS, one-step Euler update |
+| `src/CLBM/verify_tg2d_main_workflow.jl` | **73 / 73 pass**, 30.5 s | Driver integrity; metrics reproduce `data/verify_tg2d_main_workflow_summary.txt` exactly |
+
+The collision, streaming, and coupled `n`-point CLBM operators reproduce the paper constructions (`Eq. (eq:lbm-carleman)`, `Eq. (eq:defiBij)`, `Eq. (eq:F_i_alpha)`, `Eq. (eq:diagonality-F)`, `Eq. (eq:npt-coll)`, `Eq. (eq:npt-stream)`, `Eq. (eq:n_point_Carleman)`, `Eq. (eq:clbm)`) to machine tolerance.
+
+### 10.2 Accuracy caveat (unchanged from the existing benchmark)
+
+Re-running the D2Q9 smoke cases at `nx = ny = 3`, `k = 3`, `n_time = 5` reproduces the known quantitative gap:
+
+- periodic `A = 0.05`: `max |Δf| = 3.4e-2`, `max vel abs err = 1.06e-1`
+- periodic `A = 0.02`: `max |Δf| = 3.4e-2`, `max vel abs err = 4.24e-2`
+- boundary  `A = 0.05`: `max |Δf| = 3.4e-2`, `max vel abs err = 7.03e-2`
+
+For contrast, the D1Q3 benchmark at `ngrid = 6, k = 3, nt = 100` reaches `max abs err = 4.6e-4`. The D2Q9 path is two orders of magnitude worse after 20× fewer steps. **Operator construction is validated, but quantitative trajectory agreement is not.**
+
+### 10.3 Resource scaling for `nx = ny = 16`
+
+Scaling laws taken from `carleman_C_dim` in `src/CLBM/carleman_transferA.jl:158` and calibrated to measured sparse `nnz` at `nx ∈ {3, 4}` (≈10 % accurate).
+
+| `nx = ny` | `C_dim` (state) | `V` vector | `C_sparse` nnz | `C_sparse` storage | matvec flops | proj. time / step* |
+|---|---:|---:|---:|---:|---:|---:|
+| 3 (measured)   | 5.38 × 10⁵ | 4.1 MB | 1.83 × 10⁷ | ~290 MB | 3.7 × 10⁷ | 0.078 s |
+| 4 (measured)   | 3.01 × 10⁶ | 22.9 MB | 1.01 × 10⁸ | ~1.6 GB | 2.0 × 10⁸ | 0.075 s |
+| 8 (extrap)     | 1.91 × 10⁸ | 1.4 GB | 6.8 × 10⁹ | ~101 GB | 1.4 × 10¹⁰ | ~5 s |
+| **16 (extrap)**| **1.22 × 10¹⁰** | **91 GB** | **~4.3 × 10¹¹** | **~6.3 TB** | **8.7 × 10¹¹** | **~300 s** |
+
+\* Per-step projection assumes the observed sustained sparse-matvec rate of ~2.7 GFlops scales linearly with `nnz` and the matrix lives in fast memory.
+
+For the proposed `nx = ny = 16, k = 3, n_time ≈ 20` production run:
+
+- `C_sparse` alone: **≈ 6.3 TB**
+- `V` state vector per time step: **≈ 91 GB**
+- `VT` history (20 steps): **≈ 1.78 TB**
+- Total aggregate memory footprint: **≈ 8 TB** at a minimum, before any workspace or replication.
+
+### 10.4 Implementation concerns at this scale
+
+1. **No distributed-memory / MPI path.** `carleman_C_sparse` (`src/CLBM/timeMarching.jl:110`) and `carleman_S_sparse` (`src/CLBM/timeMarching.jl:436`) assemble the full `C_dim × C_dim` sparse matrix on one process. No node in a common supercomputer has ~7 TB of RAM; the run will not start.
+2. **Full `VT` history is preallocated.** `src/CLBM/timeMarching.jl:39` allocates `VT = zeros(length(V0), n_time)`, which is 1.78 TB at `nx = 16, n_time = 20` before any time step runs.
+3. **Large-matrix accumulation assembly path is documented as approximate.** `src/CLBM/timeMarching.jl:138` triggers above 5 GB dense-equivalent and notes it "may not handle overlaps perfectly." Every production build at `nx ≥ 3` takes this path, and overlap correctness has not been cross-checked against the dictionary path at large `nnz`.
+4. **`poly_order = k = 3`** leaves no higher Carleman levels to damp the truncation residual; the existing 3 % first-step distribution error has no suppression mechanism as `nt` grows.
+
+### 10.5 Recommendation — no-go at `nx = 16` as currently implemented
+
+Two independent blockers:
+
+1. **Memory**: ~8 TB aggregate is beyond the addressable RAM of any single node in common supercomputers, and the code has no distributed-memory path. Any production launch will OOM during `C_sparse` assembly or during `VT` preallocation.
+2. **Accuracy**: D2Q9 CLBM is not yet quantitatively tracking the reference LBM even at the smallest grid. Scaling up does not fix a first-step distribution error of 3 %; it will dominate the `nx = 16` run and produce a figure that disagrees with LBM by orders of magnitude on velocity.
+
+Suggested prerequisites before any supercomputer allocation is spent, both doable locally:
+
+- **Convergence sweep at `nx = 4, 6, 8`** (all fit on a high-memory workstation): check whether the 3 % D2Q9 distribution error shrinks, grows, or is `nx`-independent. This isolates whether the gap is truncation (`k`), coefficient lift, or streaming discretization, and is a prerequisite for interpreting any `nx = 16` result.
+- **Implementation-path decision for large `nx`**: choose between (a) matrix-free matvec with on-the-fly block reconstruction (no full `C_sparse`), (b) MPI-distributed state and operator, or (c) a reduced-`k` study to first close the accuracy gap. The current single-process dense-assembly driver is not salvageable at `nx = 16` by tuning alone.
