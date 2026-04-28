@@ -16,21 +16,24 @@ Inside Julia, the three most common entry points are:
 
 ```julia
 include("src/CLBM/clbm_multigrid_run.jl")
-main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, l_plot=true, coeff_method=:numerical)
+main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, l_plot=true,
+     coeff_method=:numerical, initial_condition=:legacy)
 ```
 
 Runs the primary CLBM driver. For `ngrid = 1`, it preserves the legacy single-point collision test. For `ngrid >= 3`, it runs the multigrid collision+streaming comparison workflow.
 
 ```julia
 include("src/CLBM/plot_multigrid_domain_average.jl")
-main(local_n_time=100, comparison_ngrid=6, local_truncation_order=3, coeff_method=:numerical)
+main(local_n_time=100, comparison_ngrid=6, local_truncation_order=3,
+     coeff_method=:numerical, initial_condition=:legacy)
 ```
 
 Plots the multi-grid domain-averaged `f_1`, `f_2`, `f_3` comparison between `CLBM` and the centered finite-difference `LBM`, plus absolute and relative errors.
 
 ```julia
 include("src/CLBM/plot_truncation_order_error_comparison.jl")
-main(k_values=[3, 4], comparison_ngrid=6, local_n_time=100, coeff_method=:numerical)
+main(k_values=[3, 4], comparison_ngrid=6, local_n_time=100,
+     coeff_method=:numerical, initial_condition=:legacy)
 ```
 
 Plots the domain-averaged absolute and relative error histories for multiple truncation orders `k`.
@@ -76,10 +79,53 @@ To run the standard CLBM script:
 
 ```julia
 include("src/CLBM/clbm_multigrid_run.jl")
-main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, l_plot=true, coeff_method=:numerical)
+main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, l_plot=true,
+     coeff_method=:numerical, initial_condition=:legacy)
 ```
 
 This uses the configuration in [src/CLBM/clbm_config.jl](src/CLBM/clbm_config.jl).
+
+### D1Q3 initial-condition options
+
+The D1Q3 multigrid workflow now supports two named initial-condition families:
+
+- `initial_condition=:legacy` — the original repository behavior,
+- `initial_condition=:sinusoidal` — the sinusoidal state described in `LBE_theory.tex`.
+
+For the sinusoidal option, the spatial velocity profile is
+
+$$
+u_i = u_{\mathrm{ini}} \sin\left(\frac{2\pi i}{N_x}\right), \qquad i = 1,\dots,N_x,
+$$
+
+equivalently,
+
+$$
+\mathbf{g}(r_x^\star,0) = \mathbf{g}^{\mathrm{eq}}\!\left(u^\star = u^\star_{\mathrm{ini}} \sin\frac{2\pi r_x^\star}{N_x}\right).
+$$
+
+The original repository / legacy D1Q3 initial condition means:
+
+- for `comparison_ngrid == 3`, the historical profile `[0.12, 0.00, -0.08]`,
+- otherwise, a linear ramp from `0.12` to `-0.08` across the grid.
+
+Use `u_ini=...` to set the sinusoidal amplitude. For example, to run the sinusoidal initial condition:
+
+```julia
+include("src/CLBM/clbm_multigrid_run.jl")
+main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100,
+     l_plot=true, coeff_method=:numerical,
+     initial_condition=:sinusoidal, u_ini=0.1)
+```
+
+To reproduce the original repository behavior explicitly:
+
+```julia
+include("src/CLBM/clbm_multigrid_run.jl")
+main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100,
+     l_plot=true, coeff_method=:numerical,
+     initial_condition=:legacy)
+```
 
 ### Carleman coefficient-generation mode
 
@@ -249,7 +295,8 @@ Run it from Julia with:
 
 ```julia
 include("src/CLBM/plot_multigrid_domain_average.jl")
-main(local_n_time=100, comparison_ngrid=6, local_truncation_order=3, coeff_method=:numerical)
+main(local_n_time=100, comparison_ngrid=6, local_truncation_order=3,
+     coeff_method=:numerical, initial_condition=:legacy)
 ```
 
 Parameter mapping for this script:
@@ -257,14 +304,24 @@ Parameter mapping for this script:
 - `comparison_ngrid` sets the D1Q3 spatial grid count,
 - `local_truncation_order` sets the Carleman truncation order `k`,
 - `local_n_time` sets the number of time steps,
-- `coeff_method` selects Carleman coefficient generation, with `:numerical` as the default.
+- `coeff_method` selects Carleman coefficient generation, with `:numerical` as the default,
+- `initial_condition` selects `:legacy` or `:sinusoidal`,
+- `u_ini` sets the sinusoidal amplitude when `initial_condition=:sinusoidal`.
 
-For example, the call above runs the `D1Q3`, `ngrid = 6`, `k = 3`, `nt = 100` case.
+For example, the call above runs the `D1Q3`, `ngrid = 6`, `k = 3`, `nt = 100` case with the original/legacy initial condition.
+
+To run the sinusoidal initial condition instead:
+
+```julia
+include("src/CLBM/plot_multigrid_domain_average.jl")
+main(local_n_time=100, comparison_ngrid=6, local_truncation_order=3,
+     coeff_method=:numerical, initial_condition=:sinusoidal, u_ini=0.1)
+```
 
 This script does the following:
 
 - sets `ngrid = 3`,
-- uses the same nonuniform initial condition as the regression test,
+- uses the selected D1Q3 initial condition (`:legacy` or `:sinusoidal`),
 - evolves the direct centered finite-difference n-point LBE,
 - evolves the CLBM with the same centered-difference streaming operator,
 - computes domain averages for `f_1`, `f_2`, and `f_3`,
@@ -298,12 +355,13 @@ Run the default comparison from Julia with:
 
 ```julia
 include("src/CLBM/plot_truncation_order_error_comparison.jl")
-main(k_values=[3, 4], comparison_ngrid=6, local_n_time=100, coeff_method=:numerical)
+main(k_values=[3, 4], comparison_ngrid=6, local_n_time=100,
+     coeff_method=:numerical, initial_condition=:legacy)
 ```
 
 By default, this script:
 
-- uses the same nonuniform `ngrid = 3` initial condition as the multi-grid regression,
+- uses the selected D1Q3 initial condition for each compared truncation order,
 - compares truncation orders `k = 3` and `k = 4`,
 - reuses the same multigrid CLBM/LBM comparison workflow used by `plot_multigrid_domain_average.jl` for each requested `k`,
 - plots the domain-averaged absolute and relative errors for `f_1`, `f_2`, and `f_3`.
@@ -316,7 +374,8 @@ You can also rerun the comparison with different parameters from Julia without e
 
 ```julia
 include("src/CLBM/plot_truncation_order_error_comparison.jl")
-main(k_values=[3, 4], comparison_ngrid=3, local_n_time=40, coeff_method=:numerical)
+main(k_values=[3, 4], comparison_ngrid=3, local_n_time=40,
+     coeff_method=:numerical, initial_condition=:sinusoidal, u_ini=0.1)
 ```
 
 Useful variations include:
@@ -324,6 +383,8 @@ Useful variations include:
 - changing `k_values` to compare more truncation orders,
 - increasing `local_n_time` to study long-time error growth,
 - changing `comparison_ngrid` if you want to test a different n-point setup,
+- switching between `initial_condition=:legacy` and `initial_condition=:sinusoidal`,
+- changing `u_ini` to vary the sinusoidal amplitude,
 - switching to `coeff_method=:symbolic` if you want symbolic Carleman coefficient generation.
 
 Interpretation notes:

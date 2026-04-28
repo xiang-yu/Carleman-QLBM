@@ -27,17 +27,8 @@ include(QCFD_SRC * "LBM/lbm_const_sym.jl")
 include(QCFD_SRC * "CLBM/CLBM_collision_test.jl")
 include(QCFD_SRC * "LBM/forcing.jl")
 
-function multigrid_initial_condition(comparison_ngrid)
-    if comparison_ngrid == 3
-        return vcat(
-            f_ini_test(0.12),
-            f_ini_test(0.00),
-            f_ini_test(-0.08),
-        )
-    end
-
-    velocity_profile = collect(range(0.12, -0.08, length=comparison_ngrid))
-    return reduce(vcat, (f_ini_test(velocity_profile[i]) for i = 1:comparison_ngrid))
+function multigrid_initial_condition(comparison_ngrid; initial_condition=:legacy, u_ini=0.1)
+    return d1q3_multigrid_initial_condition(comparison_ngrid; initial_condition=initial_condition, u_ini=u_ini)
 end
 
 function run_legacy_collision_driver(w, e, f, omega; local_use_sparse=use_sparse, local_n_time=n_time, local_truncation_order=truncation_order, l_plot=true)
@@ -64,7 +55,7 @@ function run_legacy_collision_driver(w, e, f, omega; local_use_sparse=use_sparse
     return fT, VT_f, VT
 end
 
-function run_multigrid_driver(w, e, f, omega; comparison_ngrid=ngrid, local_n_time=max(n_time, 40), local_truncation_order=truncation_order, l_plot=true)
+function run_multigrid_driver(w, e, f, omega; comparison_ngrid=ngrid, local_n_time=max(n_time, 40), local_truncation_order=truncation_order, l_plot=true, initial_condition=:legacy, u_ini=0.1)
     if !use_sparse
         println("ℹ️  Multigrid collision+streaming validation uses the sparse CLBM path; overriding use_sparse=false")
     end
@@ -92,7 +83,7 @@ function run_multigrid_driver(w, e, f, omega; comparison_ngrid=ngrid, local_n_ti
         D_input=D,
     )
 
-    phi_ini = multigrid_initial_condition(comparison_ngrid)
+    phi_ini = multigrid_initial_condition(comparison_ngrid; initial_condition=initial_condition, u_ini=u_ini)
 
     S_lbm, _ = streaming_operator_D1Q3_interleaved(comparison_ngrid, 1)
     phiT_lbe = timeMarching_direct_LBE_ngrid(phi_ini, dt, local_n_time, F1_ngrid, F2_ngrid, F3_ngrid; S_lbm=S_lbm)
@@ -127,13 +118,15 @@ function run_multigrid_driver(w, e, f, omega; comparison_ngrid=ngrid, local_n_ti
             xlabel("Time step")
             ylabel(latexstring("|\\langle f_{$m} \\rangle^{\\mathrm{CLBM}} - \\langle f_{$m} \\rangle^{\\mathrm{LBM}}| / \\langle f_{$m} \\rangle^{\\mathrm{LBM}}"))
         end
-        suptitle("ngrid = $comparison_ngrid, k = $local_truncation_order")
+        suptitle("ngrid = $comparison_ngrid, k = $local_truncation_order, IC = $(initial_condition)")
         tight_layout(rect=(0, 0, 1, 0.96))
         display(gcf())
         show()
     end
 
     println("n_time used for CLBM/LBM multigrid comparison = ", local_n_time)
+    println("Initial condition = ", initial_condition)
+    println("Sinusoidal amplitude u_ini = ", u_ini)
     println("Max domain-averaged absolute difference = ", maximum(avg_abs_err))
     println("Max domain-averaged relative difference = ", maximum(avg_rel_err))
     for m = 1:Q
@@ -145,7 +138,7 @@ function run_multigrid_driver(w, e, f, omega; comparison_ngrid=ngrid, local_n_ti
 end
 
 """
-    main(; comparison_ngrid, local_use_sparse, local_n_time, local_truncation_order, l_plot, coeff_method)
+    main(; comparison_ngrid, local_use_sparse, local_n_time, local_truncation_order, l_plot, coeff_method, initial_condition, u_ini)
 
 Run D1Q3 CLBM/LBM multigrid driver with explicit truncation order.
 
@@ -156,11 +149,13 @@ Arguments:
     local_truncation_order: Carleman truncation order (overrides global truncation_order)
     l_plot: Plot results
     coeff_method: Coefficient generation method (optional)
+    initial_condition: D1Q3 initial-condition selector (`:legacy` or `:sinusoidal`)
+    u_ini: Velocity amplitude used by the sinusoidal initializer
 
 Example usage:
-    main(comparison_ngrid=6, local_truncation_order=4, local_n_time=100)
+    main(comparison_ngrid=6, local_truncation_order=4, local_n_time=100, initial_condition=:sinusoidal, u_ini=0.1)
 """
-function main(; comparison_ngrid=ngrid, local_use_sparse=use_sparse, local_n_time=n_time, local_truncation_order=truncation_order, l_plot=true, coeff_method=coeff_generation_method)
+function main(; comparison_ngrid=ngrid, local_use_sparse=use_sparse, local_n_time=n_time, local_truncation_order=truncation_order, l_plot=true, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1)
     global ngrid = comparison_ngrid
     global use_sparse = local_use_sparse
     global truncation_order = local_truncation_order
@@ -191,6 +186,6 @@ function main(; comparison_ngrid=ngrid, local_use_sparse=use_sparse, local_n_tim
         return run_legacy_collision_driver(w, e, f, omega; local_use_sparse=local_use_sparse, local_n_time=local_n_time, local_truncation_order=local_truncation_order, l_plot=l_plot)
     end
 
-    println("Running validated multigrid CLBM collision+streaming comparison (ngrid = $comparison_ngrid, coeff_method = $coeff_generation_method)")
-    return run_multigrid_driver(w, e, f, omega; comparison_ngrid=comparison_ngrid, local_n_time=max(local_n_time, 40), local_truncation_order=local_truncation_order, l_plot=l_plot)
+    println("Running validated multigrid CLBM collision+streaming comparison (ngrid = $comparison_ngrid, coeff_method = $coeff_generation_method, initial_condition = $(initial_condition))")
+    return run_multigrid_driver(w, e, f, omega; comparison_ngrid=comparison_ngrid, local_n_time=max(local_n_time, 40), local_truncation_order=local_truncation_order, l_plot=l_plot, initial_condition=initial_condition, u_ini=u_ini)
 end

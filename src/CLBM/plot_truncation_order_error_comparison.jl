@@ -8,7 +8,7 @@ using LaTeXStrings
 include("plot_multigrid_domain_average.jl")
 
 """
-    main(; k_values=[3, 4], comparison_ngrid=3, local_n_time=100, coeff_method=coeff_generation_method)
+    main(; k_values=[3, 4], comparison_ngrid=3, local_n_time=100, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1)
 
 Compare D1Q3 truncation-order behavior by reusing the multigrid
 CLBM/LBM comparison workflow for each requested truncation order.
@@ -18,11 +18,13 @@ Arguments:
     comparison_ngrid: Number of grid points
     local_n_time: Number of time steps
     coeff_method: Coefficient generation method (optional)
+    initial_condition: D1Q3 initial-condition selector (`:legacy` or `:sinusoidal`)
+    u_ini: Velocity amplitude used by the sinusoidal initializer
 
 Example usage:
-    main(k_values=[3,4], comparison_ngrid=6, local_n_time=100)
+    main(k_values=[3,4], comparison_ngrid=6, local_n_time=100, initial_condition=:sinusoidal, u_ini=0.1)
 """
-function main(; k_values=[3, 4], comparison_ngrid=3, local_n_time=100, coeff_method=coeff_generation_method)
+function main(; k_values=[3, 4], comparison_ngrid=3, local_n_time=100, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1)
     if length(k_values) != 2
         error("This simplified script is intended for exactly two truncation orders, e.g. k_values=[3, 4].")
     end
@@ -36,6 +38,8 @@ function main(; k_values=[3, 4], comparison_ngrid=3, local_n_time=100, coeff_met
             comparison_ngrid=comparison_ngrid,
             local_truncation_order=k,
             coeff_method=coeff_method,
+            initial_condition=initial_condition,
+            u_ini=u_ini,
         )
         avg_abs_err_by_k[k] = comparison_data.avg_abs_err
         avg_rel_err_by_k[k] = comparison_data.avg_rel_err
@@ -92,15 +96,17 @@ function main(; k_values=[3, 4], comparison_ngrid=3, local_n_time=100, coeff_met
         ylabel(latexstring("|\\langle f_{$m} \\rangle^{\\mathrm{CLBM}} - \\langle f_{$m} \\rangle^{\\mathrm{LBM}}| / \\langle f_{$m} \\rangle^{\\mathrm{LBM}}"))
     end
 
-    suptitle("Truncation-order error comparison, ngrid = $comparison_ngrid")
+    suptitle("Truncation-order error comparison, ngrid = $comparison_ngrid, IC = $(initial_condition)")
     tight_layout(rect=(0, 0, 1, 0.95))
 
     output_dir = get(ENV, "QCFD_QCLBM_FIG_DIR", joinpath(homedir(), "Documents", "git-tex", "QC", "QCFD-QCLBM", "figs"))
     mkpath(output_dir)
-    output_file = joinpath(output_dir, "plot_truncation_order_error_comparison_D1Q3.pdf")
+    output_file = joinpath(output_dir, "plot_truncation_order_error_comparison_D1Q3_$(initial_condition).pdf")
     savefig(output_file)
 
     println("Compared truncation orders: ", collect(k_values))
+    println("Initial condition = ", initial_condition)
+    println("Sinusoidal amplitude u_ini = ", u_ini)
     for k in k_values
         println("truncation order k = ", k)
         println("  overall max domain-averaged absolute error = ", maximum(avg_abs_err_by_k[k]))

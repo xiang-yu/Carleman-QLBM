@@ -90,6 +90,14 @@ include(QCFD_SRC * "CLBM/timeMarching.jl")
         f_ini = f_ini_test(u0)
         @test length(f_ini) == Q
         @test all(f_ini .>= 0)  # Distribution functions should be non-negative
+
+        sinusoidal_velocity_profile = d1q3_sinusoidal_velocity_profile(6; u_ini=u0)
+        @test length(sinusoidal_velocity_profile) == 6
+        @test isapprox(sinusoidal_velocity_profile[1], u0 * sin(2 * pi / 6), atol=1e-12)
+
+        phi_sinusoidal = d1q3_multigrid_initial_condition(6; initial_condition=:sinusoidal, u_ini=u0)
+        @test length(phi_sinusoidal) == Q * 6
+        @test all(phi_sinusoidal .>= 0)
         
         # Test Carleman vector generation
         V = carleman_V(f_ini, truncation_order)
