@@ -173,6 +173,74 @@ The expected success message is:
 ✅ ngrid=3 nonuniform centered-difference streaming + collision matches direct n-point LBE
 ```
 
+## Experimental D2Q9 CLBM status
+
+The D2Q9 CLBM path is currently **experimental**. The active driver is [src/CLBM/clbm_tg2d_run.jl](src/CLBM/clbm_tg2d_run.jl).
+
+Important implementation notes for this path:
+
+- `poly_order` is taken from [src/CLBM/clbm_config.jl](src/CLBM/clbm_config.jl),
+- `local_truncation_order` is a runtime input argument,
+- the driver now enforces `local_truncation_order >= poly_order`,
+- the sparse time-marching path in [src/CLBM/timeMarching.jl](src/CLBM/timeMarching.jl) now avoids building the lifted streaming operator through a dense intermediate matrix.
+
+### Current minimal benchmark
+
+The current debug benchmark is the periodic D2Q9 Taylor–Green case
+
+- `nx = ny = 3`,
+- `local_truncation_order = 3`,
+- `poly_order = 3`,
+- `coeff_method = :numerical`,
+- `local_n_time = 3`.
+
+A representative run from the repository root is:
+
+```bash
+julia --project=. -e 'ENV["QCFD_SRC"]=pwd()*"/src/"; ENV["QCFD_HOME"]=pwd(); include("src/CLBM/clbm_tg2d_run.jl"); main(nx=3, ny=3, amplitude=0.02, rho_value=1.0, local_n_time=3, l_plot=false, boundary_setup=false, coeff_method=:numerical, local_truncation_order=3)'
+```
+
+### Current Carleman size and cost
+
+For the `3 × 3`, `k = 3` D2Q9 test, the lifted CLBM state has
+
+- `VT size = (538083, 3)` for the short `nt = 3` run.
+
+The current sparse build also reports:
+
+- dense-equivalent matrix size estimate: `2157.2 GB`,
+- assembled sparse Carleman matrix size: `14,004,306` nonzeros.
+
+This means the D2Q9 path is now runnable for the minimal debug case, but it is still computationally heavy even on a `3 × 3` grid.
+
+### Current error metrics
+
+For the completed periodic `3 × 3`, `k = 3`, `nt = 3` run, the driver reported:
+
+```text
+Max distribution absolute difference = 0.01126333024919772
+Max distribution relative difference = 0.10682459909765085
+Max velocity absolute error norm = 0.04242715067873692
+Max velocity relative error norm = 155.89166394701334
+```
+
+So the current status is:
+
+- the minimal D2Q9 CLBM case now runs to completion,
+- the sparse assembly bottleneck has been reduced enough for the short debug case,
+- the CLBM solution is **not yet quantitatively matching** the reference D2Q9 LBM.
+
+### What to do next
+
+Before trying larger D2Q9 runs, the next work should focus on **model/operator accuracy**:
+
+1. compare the first CLBM update against the direct semi-discrete D2Q9 n-point LBE right-hand side,
+2. isolate whether the remaining discrepancy comes from the collision lift, the streaming lift, or the lifted-state layout,
+3. add a D2Q9 operator-level regression test analogous to the existing D1Q3 multigrid RHS/update checks,
+4. only after that, extend the D2Q9 benchmark to larger grids or longer times.
+
+Until those checks are completed, treat the D2Q9 CLBM driver as a development/debugging path rather than a validated production workflow.
+
 ## Plotting the multi-grid domain-averaged comparison
 
 The plotting script is [src/CLBM/plot_multigrid_domain_average.jl](src/CLBM/plot_multigrid_domain_average.jl).

@@ -31,13 +31,13 @@ function streaming_operator_D2Q9_interleaved_periodic(nx, ny, hx, hy)
     e = [
         [0, 0],
         [1, 0],
-        [0, 1],
         [-1, 0],
+        [0, 1],
         [0, -1],
         [1, 1],
+        [1, -1],
         [-1, 1],
         [-1, -1],
-        [1, -1],
     ]
 
     n_velocities = 9
@@ -113,8 +113,8 @@ function streaming_operator_D2Q9_interleaved_boundary_aware(nx, ny, hx, hy)
     e = [
         [0, 0],
         [1, 0],
-        [0, 1],
         [-1, 0],
+        [0, 1],
         [0, -1],
         [1, 1],
         [1, -1],
@@ -430,9 +430,13 @@ function select_d2q9_streaming_operator(nx, ny, hx, hy; boundary_setup=false)
     return streaming_operator_D2Q9_interleaved_periodic(nx, ny, hx, hy)
 end
 
-function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0, local_n_time=10, l_plot=false, boundary_setup=false, coeff_method=coeff_generation_method)
+function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0, local_n_time=10, l_plot=false, boundary_setup=false, coeff_method=coeff_generation_method, local_truncation_order=truncation_order)
     if nx < 3 || ny < 3
         error("Use nx >= 3 and ny >= 3 for non-degenerate periodic centered-difference TG streaming.")
+    end
+
+    if local_truncation_order < poly_order
+        error("local_truncation_order must satisfy local_truncation_order >= poly_order. Got local_truncation_order = $(local_truncation_order), poly_order = $(poly_order).")
     end
 
     global LX = nx
@@ -444,8 +448,7 @@ function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0, local_n_time=10, l_pl
     global force_factor = 0.0
     global rho0 = rho_value
     global lTaylor = false
-    global poly_order = 2
-    global truncation_order = 2
+    global truncation_order = local_truncation_order
     global coeff_generation_method = coeff_method
 
     numerical_reference = build_numerical_tg_reference(

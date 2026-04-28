@@ -2,7 +2,6 @@ QCFD_HOME = ENV["QCFD_HOME"]
 QCFD_SRC = ENV["QCFD_SRC"]  
 include(QCFD_HOME * "/julia_lib/matrix_kit.jl")
 include(QCFD_SRC * "CLBM/LBM_const_subs.jl")
-#include(QCFD_SRC * "LBM/julia/forcing.jl")
 
 function F_carlemanOrder_Q_collision(iQ, order, f, omega, tau_value)
     #=
@@ -64,13 +63,11 @@ function F_carlemanOrder_collision(Q, order, f, omega, tau_value)
 end
 
 function F0_random_forcing(Q, force_factor, w_value, e_value)
-    LX = 1
-    LY = 1
-    j = 1
-    k = 1
-    fx_domain, fy_domain = forcing_random(LX, LY, 1, force_factor)
-    F0 = forcing_lbm(fx_domain[j, k], fy_domain[j, k], w_value, e_value)
-    return F0
+    if iszero(force_factor)
+        return zeros(Float64, Q)
+    end
+
+    error("Nonzero forcing is not supported in the current TG CLBM driver without explicitly loading and configuring src/LBM/forcing.jl. The TG benchmark path should use force_factor = 0.0.")
 end
 
 function Kron_kth_identity(Fj, i, rth, Q)

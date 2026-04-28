@@ -75,7 +75,7 @@ function build_streaming_carleman_operator_sparse(Q, truncation_order, poly_orde
     end
 
     streaming_matrix = S_lbm === nothing ? streaming_operator_D1Q3_interleaved(ngrid, 1)[1] : S_lbm
-    return sparse(carleman_S(Q, truncation_order, poly_order, ngrid, streaming_matrix))
+    return carleman_S_sparse(Q, truncation_order, poly_order, ngrid, streaming_matrix)
 end
 
 function timeMarching_collision(omega, f, f_ini, tau_value, e_value, dt,  n_time, l_plot)
@@ -426,6 +426,45 @@ function transferA_ngrid_sparse(i, j, Q, ngrid)
     A_ij = sum_Kron_kth_identity_sparse(Fj_ngrid, i, Q * ngrid)
     
     return A_ij
+end
+
+function transferA_S_sparse(i, Q, ngrid, S_Fj)
+    """Sparse version of transferA_S for lifted streaming operators"""
+    return sum_Kron_kth_identity_sparse(S_Fj, i, Q * ngrid)
+end
+
+function carleman_S_sparse(Q, truncation_order, poly_order, ngrid, S_Fj)
+    """Sparse version of carleman_S that avoids dense lifted streaming assembly"""
+    ncol_zero_ini = 0 # do NOT change this.
+    C_dim = carleman_C_dim(Q, truncation_order, ngrid)
+
+    I_indices = Int[]
+    J_indices = Int[]
+    values = Float64[]
+
+    for ind_row = 1:truncation_order
+        ind_col = ind_row
+        if ind_col >= ind_row - 1 && ind_col <= ind_row + poly_order - 1
+            ind_row_C, _ = carleman_C_block_dim(Q, ind_row, ind_col, ncol_zero_ini)
+            S_block_sparse = transferA_S_sparse(ind_row, Q, ngrid, S_Fj)
+
+            block_I, block_J, block_vals = findnz(S_block_sparse)
+            row_offset = first(ind_row_C) - 1
+            col_offset = first(ind_row_C) - 1
+
+            for k = 1:length(block_I)
+                push!(I_indices, block_I[k] + row_offset)
+                push!(J_indices, block_J[k] + col_offset)
+                push!(values, block_vals[k])
+            end
+        end
+    end
+
+    if isempty(I_indices)
+        return spzeros(C_dim, C_dim)
+    end
+
+    return sparse(I_indices, J_indices, values, C_dim, C_dim)
 end
 
 function carleman_transferA_sparse(ind_row, ind_col, Q, f, omega, tau_value, force_factor, w_value, e_value, F0, ngrid)

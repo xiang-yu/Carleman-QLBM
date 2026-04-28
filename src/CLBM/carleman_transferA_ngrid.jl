@@ -19,13 +19,13 @@ function lbm_const_numerical(; Q_local, D_local)
         e_value = [
             [0.0, 0.0],
             [1.0, 0.0],
-            [0.0, 1.0],
             [-1.0, 0.0],
+            [0.0, 1.0],
             [0.0, -1.0],
             [1.0, 1.0],
+            [1.0, -1.0],
             [-1.0, 1.0],
             [-1.0, -1.0],
-            [1.0, -1.0],
         ]
     else
         error("Unsupported lattice for numerical coefficient generation: Q = $Q_local, D = $D_local")

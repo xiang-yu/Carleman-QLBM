@@ -37,13 +37,13 @@ function lbm_const_sym(; Q_local=nothing, D_local=nothing)
         e_value = [
             [0.0, 0.0],
             [1.0, 0.0],
-            [0.0, 1.0],
             [-1.0, 0.0],
+            [0.0, 1.0],
             [0.0, -1.0],
             [1.0, 1.0],
+            [1.0, -1.0],
             [-1.0, 1.0],
             [-1.0, -1.0],
-            [1.0, -1.0],
         ]
     else
         error("Unsupported lattice for lbm_const_sym: Q = $Q_eff, D = $D_eff")
