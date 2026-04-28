@@ -16,25 +16,24 @@ Inside Julia, the three most common entry points are:
 
 ```julia
 include("src/CLBM/clbm_multigrid_run.jl")
-main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, l_plot=true)
+main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, l_plot=true, coeff_method=:numerical)
 ```
 
 Runs the primary CLBM driver. For `ngrid = 1`, it preserves the legacy single-point collision test. For `ngrid >= 3`, it runs the multigrid collision+streaming comparison workflow.
 
 ```julia
 include("src/CLBM/plot_multigrid_domain_average.jl")
-global truncation_order = 3
-main(local_n_time=100, comparison_ngrid=6)
+main(local_n_time=100, comparison_ngrid=6, local_truncation_order=3, coeff_method=:numerical)
 ```
 
 Plots the multi-grid domain-averaged `f_1`, `f_2`, `f_3` comparison between `CLBM` and the centered finite-difference `LBM`, plus absolute and relative errors.
 
 ```julia
 include("src/CLBM/plot_truncation_order_error_comparison.jl")
-main(k_values=[3, 4], local_dt=1.0, comparison_ngrid=6, local_n_time=100)
+main(k_values=[3, 4], comparison_ngrid=6, local_n_time=100, coeff_method=:numerical)
 ```
 
-Plots the domain-averaged absolute and relative error histories for multiple truncation orders `k` at fixed `dt`.
+Plots the domain-averaged absolute and relative error histories for multiple truncation orders `k`.
 
 ```bash
 julia --project=. src/CLBM/unit_tests_minimal.jl
@@ -77,10 +76,30 @@ To run the standard CLBM script:
 
 ```julia
 include("src/CLBM/clbm_multigrid_run.jl")
-main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, l_plot=true)
+main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, l_plot=true, coeff_method=:numerical)
 ```
 
 This uses the configuration in [src/CLBM/clbm_config.jl](src/CLBM/clbm_config.jl).
+
+### Carleman coefficient-generation mode
+
+The CLBM drivers support two Carleman coefficient-generation modes:
+
+- `:numerical` — the default and recommended option for routine runs
+- `:symbolic` — an optional alternative when you explicitly want symbolic coefficient generation
+
+The repository default in [src/CLBM/clbm_config.jl](src/CLBM/clbm_config.jl) is now:
+
+```julia
+global coeff_generation_method = :numerical
+```
+
+You can still override this at run time by passing `coeff_method` into the driver you call. For example:
+
+```julia
+include("src/CLBM/clbm_multigrid_run.jl")
+main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, coeff_method=:symbolic)
+```
 
 Important:
 
@@ -162,15 +181,15 @@ Run it from Julia with:
 
 ```julia
 include("src/CLBM/plot_multigrid_domain_average.jl")
-global truncation_order = 3
-main(local_n_time=100, comparison_ngrid=6)
+main(local_n_time=100, comparison_ngrid=6, local_truncation_order=3, coeff_method=:numerical)
 ```
 
 Parameter mapping for this script:
 
 - `comparison_ngrid` sets the D1Q3 spatial grid count,
-- `truncation_order` sets the Carleman truncation order `k`,
-- `local_n_time` sets the number of time steps.
+- `local_truncation_order` sets the Carleman truncation order `k`,
+- `local_n_time` sets the number of time steps,
+- `coeff_method` selects Carleman coefficient generation, with `:numerical` as the default.
 
 For example, the call above runs the `D1Q3`, `ngrid = 6`, `k = 3`, `nt = 100` case.
 
@@ -211,16 +230,14 @@ Run the default comparison from Julia with:
 
 ```julia
 include("src/CLBM/plot_truncation_order_error_comparison.jl")
-main(k_values=[3, 4], local_dt=1.0, comparison_ngrid=6, local_n_time=100)
+main(k_values=[3, 4], comparison_ngrid=6, local_n_time=100, coeff_method=:numerical)
 ```
 
 By default, this script:
 
 - uses the same nonuniform `ngrid = 3` initial condition as the multi-grid regression,
-- fixes `dt = 1.0` in LBM units,
 - compares truncation orders `k = 3` and `k = 4`,
-- computes the direct centered finite-difference n-point LBE once,
-- evolves the CLBM for each requested `k`,
+- reuses the same multigrid CLBM/LBM comparison workflow used by `plot_multigrid_domain_average.jl` for each requested `k`,
 - plots the domain-averaged absolute and relative errors for `f_1`, `f_2`, and `f_3`.
 
 The script saves the PDF automatically to the figures directory. By default, if `QCFD_QCLBM_FIG_DIR` is not set, it uses:
@@ -231,14 +248,15 @@ You can also rerun the comparison with different parameters from Julia without e
 
 ```julia
 include("src/CLBM/plot_truncation_order_error_comparison.jl")
-main(k_values=[3, 4], local_dt=1.0, comparison_ngrid=3, local_n_time=40)
+main(k_values=[3, 4], comparison_ngrid=3, local_n_time=40, coeff_method=:numerical)
 ```
 
 Useful variations include:
 
 - changing `k_values` to compare more truncation orders,
 - increasing `local_n_time` to study long-time error growth,
-- changing `comparison_ngrid` if you want to test a different n-point setup.
+- changing `comparison_ngrid` if you want to test a different n-point setup,
+- switching to `coeff_method=:symbolic` if you want symbolic Carleman coefficient generation.
 
 Interpretation notes:
 
@@ -345,14 +363,14 @@ The 2D CLBM driver is:
 It is structured so that:
 
 - the numerical D2Q9 LBM run provides the reference history,
-- symbolic D2Q9 machinery is used only to derive Carleman operators,
+- numerical Carleman coefficient generation is the default path, while symbolic derivation remains available as an option,
 - periodic and boundary-aware streaming operators can be selected on the CLBM side.
 
 Run a small 2D CLBM TG test from Julia with:
 
 ```julia
 include("src/CLBM/clbm_tg2d_run.jl")
-main(nx=3, ny=3, amplitude=0.02, local_n_time=4, l_plot=false)
+main(nx=3, ny=3, amplitude=0.02, local_n_time=4, l_plot=false, coeff_method=:numerical)
 ```
 
 Important note:
@@ -366,7 +384,7 @@ Important note:
 
 ```julia
 include("src/CLBM/clbm_multigrid_run.jl")
-main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, l_plot=true)
+main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, l_plot=true, coeff_method=:numerical)
 ```
 
 Use this for the standard configured CLBM run and plot.
@@ -386,15 +404,14 @@ Use this to check:
 
 ```julia
 include("src/CLBM/plot_multigrid_domain_average.jl")
-global truncation_order = 3
-main(local_n_time=100, comparison_ngrid=6)
+main(local_n_time=100, comparison_ngrid=6, local_truncation_order=3, coeff_method=:numerical)
 ```
 
 ### Compare multiple truncation orders
 
 ```julia
 include("src/CLBM/plot_truncation_order_error_comparison.jl")
-main(k_values=[3, 4], local_dt=1.0, comparison_ngrid=6, local_n_time=100)
+main(k_values=[3, 4], comparison_ngrid=6, local_n_time=100, coeff_method=:numerical)
 ```
 
 Use this to compare `k` values at fixed `D1Q3` grid size and time horizon.
@@ -409,6 +426,7 @@ Use this to get:
 
 ```julia
 include("src/CLBM/plot_truncation_order_error_comparison.jl")
+main(k_values=[3, 4], comparison_ngrid=6, local_n_time=100, coeff_method=:numerical)
 ```
 
 Use this to get:

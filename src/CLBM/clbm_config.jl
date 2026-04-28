@@ -75,6 +75,7 @@ global truncation_order = 3
 
 # Other flags
 global lscale_kvector_tobox = false
+global coeff_generation_method = :numerical
 
 # Physical parameters
 global rho0 = 1.0001  # Any arbitrary flow
@@ -98,6 +99,7 @@ println("  truncation_order = $truncation_order")
 println("  poly_order = $poly_order")
 println("  force_factor = $force_factor")
 println("  ngrid = $ngrid")
+println("  coeff_generation_method = $coeff_generation_method")
 
 if ngrid == 2
     println("⚠️  ngrid = 2 is a degenerate periodic centered-difference case.")

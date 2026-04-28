@@ -40,7 +40,7 @@ function multigrid_initial_condition(comparison_ngrid)
     return reduce(vcat, (f_ini_test(velocity_profile[i]) for i = 1:comparison_ngrid))
 end
 
-function run_legacy_collision_driver(w, e, f, omega; local_use_sparse=use_sparse, local_n_time=n_time, l_plot=true)
+function run_legacy_collision_driver(w, e, f, omega; local_use_sparse=use_sparse, local_n_time=n_time, local_truncation_order=truncation_order, l_plot=true)
     if ngrid == 1 && local_use_sparse
         println("ℹ️  Using the original dense legacy collision test for ngrid = 1 to preserve single-point behavior")
         local_use_sparse = false
@@ -50,11 +50,11 @@ function run_legacy_collision_driver(w, e, f, omega; local_use_sparse=use_sparse
 
     if local_use_sparse
         println("Using SPARSE Carleman matrix implementation (use_sparse=$local_use_sparse, ngrid=$ngrid)")
-        fT, VT_f, VT = CLBM_collision_test_sparse(Q, omega, f, truncation_order, dt, tau_value, e_value, local_n_time, l_plot)
+        fT, VT_f, VT = CLBM_collision_test_sparse(Q, omega, f, local_truncation_order, dt, tau_value, e_value, local_n_time, l_plot)
     else
         println("Using DENSE Carleman matrix implementation (use_sparse=$local_use_sparse, ngrid=$ngrid)")
-        C, bt, F0 = carleman_C(Q, truncation_order, poly_order, f, omega, tau_value, force_factor, w_value, e_value)
-        fT, VT_f, VT = CLBM_collision_test(Q, omega, f, C, truncation_order, dt, tau_value, e_value, local_n_time, l_plot)
+        C, bt, F0 = carleman_C(Q, local_truncation_order, poly_order, f, omega, tau_value, force_factor, w_value, e_value)
+        fT, VT_f, VT = CLBM_collision_test(Q, omega, f, C, local_truncation_order, dt, tau_value, e_value, local_n_time, l_plot)
     end
 
     title("CLBM-D1Q3, τ=" * string(tau_value) * ", u_0 = 0.1")
@@ -64,7 +64,7 @@ function run_legacy_collision_driver(w, e, f, omega; local_use_sparse=use_sparse
     return fT, VT_f, VT
 end
 
-function run_multigrid_driver(w, e, f, omega; comparison_ngrid=ngrid, local_n_time=max(n_time, 40), l_plot=true)
+function run_multigrid_driver(w, e, f, omega; comparison_ngrid=ngrid, local_n_time=max(n_time, 40), local_truncation_order=truncation_order, l_plot=true)
     if !use_sparse
         println("ℹ️  Multigrid collision+streaming validation uses the sparse CLBM path; overriding use_sparse=false")
     end
@@ -77,13 +77,26 @@ function run_multigrid_driver(w, e, f, omega; comparison_ngrid=ngrid, local_n_ti
 
     global ngrid = comparison_ngrid
     global use_sparse = true
-    global F1_ngrid, F2_ngrid, F3_ngrid = get_coeff_LBM_Fi_ngrid(poly_order, Q, f, omega, tau_value, comparison_ngrid)
+    global F1_ngrid, F2_ngrid, F3_ngrid = get_coeff_LBM_Fi_ngrid(
+        poly_order,
+        Q,
+        f,
+        omega,
+        tau_value,
+        comparison_ngrid;
+        method=coeff_generation_method,
+        w_value_input=w_value,
+        e_value_input=e_value,
+        rho_value_input=rho0,
+        lTaylor_input=lTaylor,
+        D_input=D,
+    )
 
     phi_ini = multigrid_initial_condition(comparison_ngrid)
 
     S_lbm, _ = streaming_operator_D1Q3_interleaved(comparison_ngrid, 1)
     phiT_lbe = timeMarching_direct_LBE_ngrid(phi_ini, dt, local_n_time, F1_ngrid, F2_ngrid, F3_ngrid; S_lbm=S_lbm)
-    phiT_clbm, VT = timeMarching_state_CLBM_sparse(omega, f, tau_value, Q, truncation_order, dt, phi_ini, local_n_time)
+    phiT_clbm, VT = timeMarching_state_CLBM_sparse(omega, f, tau_value, Q, local_truncation_order, dt, phi_ini, local_n_time)
 
     avg_lbe = domain_average_distribution_history(phiT_lbe, Q, comparison_ngrid)
     avg_clbm = domain_average_distribution_history(phiT_clbm, Q, comparison_ngrid)
@@ -114,7 +127,7 @@ function run_multigrid_driver(w, e, f, omega; comparison_ngrid=ngrid, local_n_ti
             xlabel("Time step")
             ylabel(latexstring("|\\langle f_{$m} \\rangle^{\\mathrm{CLBM}} - \\langle f_{$m} \\rangle^{\\mathrm{LBM}}| / \\langle f_{$m} \\rangle^{\\mathrm{LBM}}"))
         end
-        suptitle("ngrid = $comparison_ngrid, k = $truncation_order")
+        suptitle("ngrid = $comparison_ngrid, k = $local_truncation_order")
         tight_layout(rect=(0, 0, 1, 0.96))
         display(gcf())
         show()
@@ -131,22 +144,53 @@ function run_multigrid_driver(w, e, f, omega; comparison_ngrid=ngrid, local_n_ti
     return phiT_lbe, phiT_clbm, VT, avg_abs_err, avg_rel_err
 end
 
-function main(; comparison_ngrid=ngrid, local_use_sparse=use_sparse, local_n_time=n_time, l_plot=true)
+"""
+    main(; comparison_ngrid, local_use_sparse, local_n_time, local_truncation_order, l_plot, coeff_method)
+
+Run D1Q3 CLBM/LBM multigrid driver with explicit truncation order.
+
+Arguments:
+    comparison_ngrid: Number of grid points
+    local_use_sparse: Use sparse Carleman matrix
+    local_n_time: Number of time steps
+    local_truncation_order: Carleman truncation order (overrides global truncation_order)
+    l_plot: Plot results
+    coeff_method: Coefficient generation method (optional)
+
+Example usage:
+    main(comparison_ngrid=6, local_truncation_order=4, local_n_time=100)
+"""
+function main(; comparison_ngrid=ngrid, local_use_sparse=use_sparse, local_n_time=n_time, local_truncation_order=truncation_order, l_plot=true, coeff_method=coeff_generation_method)
     global ngrid = comparison_ngrid
     global use_sparse = local_use_sparse
+    global truncation_order = local_truncation_order
+    global coeff_generation_method = coeff_method
 
     w, e, w_val, e_val = lbm_const_sym()
     global w_value = w_val
     global e_value = e_val
 
     f, omega, u, rho = collision(Q, D, w, e, rho0, lTaylor, lorder2)
-    global F1_ngrid, F2_ngrid, F3_ngrid = get_coeff_LBM_Fi_ngrid(poly_order, Q, f, omega, tau_value, comparison_ngrid)
+    global F1_ngrid, F2_ngrid, F3_ngrid = get_coeff_LBM_Fi_ngrid(
+        poly_order,
+        Q,
+        f,
+        omega,
+        tau_value,
+        comparison_ngrid;
+        method=coeff_generation_method,
+        w_value_input=w_value,
+        e_value_input=e_value,
+        rho_value_input=rho0,
+        lTaylor_input=lTaylor,
+        D_input=D,
+    )
 
     if comparison_ngrid == 1
         println("Running legacy single-point CLBM collision test (ngrid = 1)")
-        return run_legacy_collision_driver(w, e, f, omega; local_use_sparse=local_use_sparse, local_n_time=local_n_time, l_plot=l_plot)
+        return run_legacy_collision_driver(w, e, f, omega; local_use_sparse=local_use_sparse, local_n_time=local_n_time, local_truncation_order=local_truncation_order, l_plot=l_plot)
     end
 
-    println("Running validated multigrid CLBM collision+streaming comparison (ngrid = $comparison_ngrid)")
-    return run_multigrid_driver(w, e, f, omega; comparison_ngrid=comparison_ngrid, local_n_time=max(local_n_time, 40), l_plot=l_plot)
+    println("Running validated multigrid CLBM collision+streaming comparison (ngrid = $comparison_ngrid, coeff_method = $coeff_generation_method)")
+    return run_multigrid_driver(w, e, f, omega; comparison_ngrid=comparison_ngrid, local_n_time=max(local_n_time, 40), local_truncation_order=local_truncation_order, l_plot=l_plot)
 end

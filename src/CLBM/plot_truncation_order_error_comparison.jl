@@ -3,75 +3,42 @@ QCFD_SRC = ENV["QCFD_SRC"]
 QCFD_HOME = ENV["QCFD_HOME"]
 
 using PyPlot
-using HDF5
 using LaTeXStrings
 
-include(QCFD_HOME * "/visualization/plot_kit.jl")
-include(QCFD_HOME * "/visualization/plot_CLBM_LBM.jl")
+include("plot_multigrid_domain_average.jl")
 
-if l_sympy
-    using SymPy
-    using LinearAlgebra
-    include(QCFD_SRC * "CLBM/coeffs_poly.jl")
-else
-    using Symbolics
-end
+"""
+    main(; k_values=[3, 4], comparison_ngrid=3, local_n_time=100, coeff_method=coeff_generation_method)
 
-include("clbm_config.jl")
-include(QCFD_SRC * "CLBM/collision_sym.jl")
-include(QCFD_SRC * "CLBM/carleman_transferA.jl")
-include(QCFD_SRC * "CLBM/carleman_transferA_ngrid.jl")
-include(QCFD_SRC * "CLBM/LBM_const_subs.jl")
-include(QCFD_SRC * "LBM/lbm_cons.jl")
-include(QCFD_SRC * "LBM/lbm_const_sym.jl")
-include(QCFD_SRC * "LBM/forcing.jl")
-include(QCFD_SRC * "LBM/f_initial.jl")
-include(QCFD_SRC * "CLBM/streaming_Carleman.jl")
-include(QCFD_SRC * "CLBM/timeMarching.jl")
+Compare D1Q3 truncation-order behavior by reusing the multigrid
+CLBM/LBM comparison workflow for each requested truncation order.
 
-function multigrid_initial_condition(comparison_ngrid)
-    if comparison_ngrid == 3
-        return vcat(
-            f_ini_test(0.12),
-            f_ini_test(0.00),
-            f_ini_test(-0.08),
-        )
+Arguments:
+    k_values: Array of Carleman truncation orders to compare (e.g., [3, 4])
+    comparison_ngrid: Number of grid points
+    local_n_time: Number of time steps
+    coeff_method: Coefficient generation method (optional)
+
+Example usage:
+    main(k_values=[3,4], comparison_ngrid=6, local_n_time=100)
+"""
+function main(; k_values=[3, 4], comparison_ngrid=3, local_n_time=100, coeff_method=coeff_generation_method)
+    if length(k_values) != 2
+        error("This simplified script is intended for exactly two truncation orders, e.g. k_values=[3, 4].")
     end
 
-    velocity_profile = collect(range(0.12, -0.08, length=comparison_ngrid))
-    return reduce(vcat, (f_ini_test(velocity_profile[i]) for i = 1:comparison_ngrid))
-end
-
-function main(; k_values=[3, 4], local_dt=1.0, comparison_ngrid=3, local_n_time=n_time)
-    global ngrid = comparison_ngrid
-    global use_sparse = true
-
-    w, e, w_val, e_val = lbm_const_sym()
-    global w_value = w_val
-    global e_value = e_val
-
-    f, omega, u, rho = collision(Q, D, w, e, rho0, lTaylor, lorder2)
-    global F1_ngrid, F2_ngrid, F3_ngrid = get_coeff_LBM_Fi_ngrid(poly_order, Q, f, omega, tau_value, comparison_ngrid)
-
-    phi_ini = multigrid_initial_condition(comparison_ngrid)
-
-    S_lbm, _ = streaming_operator_D1Q3_interleaved(comparison_ngrid, 1)
-    phiT_lbe = timeMarching_direct_LBE_ngrid(phi_ini, local_dt, local_n_time, F1_ngrid, F2_ngrid, F3_ngrid; S_lbm=S_lbm)
-    avg_lbe = domain_average_distribution_history(phiT_lbe, Q, comparison_ngrid)
-
-    avg_clbm_by_k = Dict{Int, Matrix{Float64}}()
     avg_abs_err_by_k = Dict{Int, Matrix{Float64}}()
     avg_rel_err_by_k = Dict{Int, Matrix{Float64}}()
 
     for k in k_values
-        phiT_clbm, _ = timeMarching_state_CLBM_sparse(omega, f, tau_value, Q, k, local_dt, phi_ini, local_n_time)
-        avg_clbm = domain_average_distribution_history(phiT_clbm, Q, comparison_ngrid)
-        avg_abs_err = abs.(avg_clbm .- avg_lbe)
-        avg_rel_err = avg_abs_err ./ max.(abs.(avg_lbe), eps(Float64))
-
-        avg_clbm_by_k[k] = avg_clbm
-        avg_abs_err_by_k[k] = avg_abs_err
-        avg_rel_err_by_k[k] = avg_rel_err
+        comparison_data = compute_domain_average_comparison(
+            local_n_time=local_n_time,
+            comparison_ngrid=comparison_ngrid,
+            local_truncation_order=k,
+            coeff_method=coeff_method,
+        )
+        avg_abs_err_by_k[k] = comparison_data.avg_abs_err
+        avg_rel_err_by_k[k] = comparison_data.avg_rel_err
     end
 
     time = 1:local_n_time
@@ -82,6 +49,7 @@ function main(; k_values=[3, 4], local_dt=1.0, comparison_ngrid=3, local_n_time=
     linestyles = Dict(k => linestyle_cycle[mod1(i, length(linestyle_cycle))] for (i, k) in enumerate(k_values))
     markers = Dict(k => marker_cycle[mod1(i, length(marker_cycle))] for (i, k) in enumerate(k_values))
 
+    close("all")
     figure(figsize=(12, 7))
     for m = 1:Q
         subplot(2, Q, m)
@@ -132,21 +100,15 @@ function main(; k_values=[3, 4], local_dt=1.0, comparison_ngrid=3, local_n_time=
     output_file = joinpath(output_dir, "plot_truncation_order_error_comparison_D1Q3.pdf")
     savefig(output_file)
 
-    println("dt used for CLBM/LBM comparison = ", local_dt)
+    println("Compared truncation orders: ", collect(k_values))
     for k in k_values
         println("truncation order k = ", k)
         println("  overall max domain-averaged absolute error = ", maximum(avg_abs_err_by_k[k]))
         println("  overall max domain-averaged relative error = ", maximum(avg_rel_err_by_k[k]))
-        for m = 1:Q
-            println("  f_$(m): max abs error = ", maximum(avg_abs_err_by_k[k][m, :]))
-            println("  f_$(m): max rel error = ", maximum(avg_rel_err_by_k[k][m, :]))
-        end
     end
-    println("Saved figure to: ", output_file)
-
+    println("Truncation order error comparison plot saved to: ", output_file)
     display(gcf())
     show()
-
     return output_file
 end
 

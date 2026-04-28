@@ -368,6 +368,59 @@ function build_symbolic_carleman_setup(; rho_value, nspatial)
     )
 end
 
+function build_carleman_setup(; rho_value, nspatial, method=coeff_generation_method)
+    numeric_weights, numeric_velocities = lbm_const_numerical(Q_local=Q, D_local=D)[1:2]
+
+    if method == :symbolic
+        symbolic_setup = build_symbolic_carleman_setup(rho_value=rho_value, nspatial=nspatial)
+        return merge(symbolic_setup, (method=method,))
+    elseif method == :numerical
+        println("Using pure numerical coefficient generation for D2Q9 Carleman operators.")
+
+        symbolic_weights, symbolic_velocities, _, _, a_sym, b_sym, c_sym, d_sym, a_val, b_val, c_val, d_val = lbm_const_sym(Q_local=Q, D_local=D)
+        symbolic_state, symbolic_collision, symbolic_velocity, symbolic_density = collision(Q, D, symbolic_weights, symbolic_velocities, rho_value, lTaylor, lorder2)
+        carleman_F1, carleman_F2, carleman_F3 = get_coeff_LBM_Fi_ngrid(
+            poly_order,
+            Q,
+            symbolic_state,
+            symbolic_collision,
+            tau_value,
+            nspatial;
+            method=:numerical,
+            w_value_input=numeric_weights,
+            e_value_input=numeric_velocities,
+            rho_value_input=rho_value,
+            lTaylor_input=lTaylor,
+            D_input=D,
+        )
+
+        return (
+            method=method,
+            symbolic_weights=symbolic_weights,
+            symbolic_velocities=symbolic_velocities,
+            numeric_weights=numeric_weights,
+            numeric_velocities=numeric_velocities,
+            a_sym=a_sym,
+            b_sym=b_sym,
+            c_sym=c_sym,
+            d_sym=d_sym,
+            a_val=a_val,
+            b_val=b_val,
+            c_val=c_val,
+            d_val=d_val,
+            symbolic_state=symbolic_state,
+            symbolic_collision=symbolic_collision,
+            symbolic_velocity=symbolic_velocity,
+            symbolic_density=symbolic_density,
+            carleman_F1=carleman_F1,
+            carleman_F2=carleman_F2,
+            carleman_F3=carleman_F3,
+        )
+    else
+        error("Unknown coefficient-generation method: $method")
+    end
+end
+
 function select_d2q9_streaming_operator(nx, ny, hx, hy; boundary_setup=false)
     if boundary_setup
         println("ℹ️  CLBM uses a boundary-aware centered-difference D2Q9 streaming operator with bounce-back-inspired wall coupling.")
@@ -377,7 +430,7 @@ function select_d2q9_streaming_operator(nx, ny, hx, hy; boundary_setup=false)
     return streaming_operator_D2Q9_interleaved_periodic(nx, ny, hx, hy)
 end
 
-function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0, local_n_time=10, l_plot=false, boundary_setup=false)
+function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0, local_n_time=10, l_plot=false, boundary_setup=false, coeff_method=coeff_generation_method)
     if nx < 3 || ny < 3
         error("Use nx >= 3 and ny >= 3 for non-degenerate periodic centered-difference TG streaming.")
     end
@@ -393,6 +446,7 @@ function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0, local_n_time=10, l_pl
     global lTaylor = false
     global poly_order = 2
     global truncation_order = 2
+    global coeff_generation_method = coeff_method
 
     numerical_reference = build_numerical_tg_reference(
         nx=nx,
@@ -403,7 +457,7 @@ function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0, local_n_time=10, l_pl
         local_n_time=local_n_time,
         boundary_setup=boundary_setup,
     )
-    symbolic_setup = build_symbolic_carleman_setup(rho_value=rho_value, nspatial=ngrid)
+    symbolic_setup = build_carleman_setup(rho_value=rho_value, nspatial=ngrid, method=coeff_generation_method)
 
     global w_value = symbolic_setup.numeric_weights
     global e_value = symbolic_setup.numeric_velocities

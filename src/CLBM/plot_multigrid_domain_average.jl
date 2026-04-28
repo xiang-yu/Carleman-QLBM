@@ -32,6 +32,9 @@ include(QCFD_SRC * "CLBM/timeMarching.jl")
 function multigrid_initial_condition(comparison_ngrid)
     if comparison_ngrid == 3
         return vcat(
+            # The arguments to f_ini_test are velocity-like perturbation inputs uu,
+            # not particle populations. For uu = -0.08 the resulting D1Q3 state
+            # remains positive componentwise.
             f_ini_test(0.12),
             f_ini_test(0.00),
             f_ini_test(-0.08),
@@ -42,30 +45,69 @@ function multigrid_initial_condition(comparison_ngrid)
     return reduce(vcat, (f_ini_test(velocity_profile[i]) for i = 1:comparison_ngrid))
 end
 
-function main(; local_n_time=max(n_time, 40), comparison_ngrid=3, output_basename=nothing)
+function compute_domain_average_comparison(; local_n_time=max(n_time, 40), comparison_ngrid=3, local_truncation_order=truncation_order, coeff_method=coeff_generation_method)
     global ngrid = comparison_ngrid
     global use_sparse = true
+    global truncation_order = local_truncation_order
+    global coeff_generation_method = coeff_method
 
     w, e, w_val, e_val = lbm_const_sym()
     global w_value = w_val
     global e_value = e_val
 
     f, omega, u, rho = collision(Q, D, w, e, rho0, lTaylor, lorder2)
-    global F1_ngrid, F2_ngrid, F3_ngrid = get_coeff_LBM_Fi_ngrid(poly_order, Q, f, omega, tau_value, comparison_ngrid)
+    global F1_ngrid, F2_ngrid, F3_ngrid = get_coeff_LBM_Fi_ngrid(
+        poly_order,
+        Q,
+        f,
+        omega,
+        tau_value,
+        comparison_ngrid;
+        method=coeff_generation_method,
+        w_value_input=w_value,
+        e_value_input=e_value,
+        rho_value_input=rho0,
+        lTaylor_input=lTaylor,
+        D_input=D,
+    )
 
     phi_ini = multigrid_initial_condition(comparison_ngrid)
 
     S_lbm, _ = streaming_operator_D1Q3_interleaved(comparison_ngrid, 1)
     phiT_lbe = timeMarching_direct_LBE_ngrid(phi_ini, dt, local_n_time, F1_ngrid, F2_ngrid, F3_ngrid; S_lbm=S_lbm)
-    phiT_clbm, VT = timeMarching_state_CLBM_sparse(omega, f, tau_value, Q, truncation_order, dt, phi_ini, local_n_time)
+    phiT_clbm, VT = timeMarching_state_CLBM_sparse(omega, f, tau_value, Q, local_truncation_order, dt, phi_ini, local_n_time)
 
     avg_lbe = domain_average_distribution_history(phiT_lbe, Q, comparison_ngrid)
     avg_clbm = domain_average_distribution_history(phiT_clbm, Q, comparison_ngrid)
     avg_abs_err = abs.(avg_clbm .- avg_lbe)
     avg_rel_err = avg_abs_err ./ max.(abs.(avg_lbe), eps(Float64))
 
+    return (
+        phi_ini=phi_ini,
+        phiT_lbe=phiT_lbe,
+        phiT_clbm=phiT_clbm,
+        VT=VT,
+        avg_lbe=avg_lbe,
+        avg_clbm=avg_clbm,
+        avg_abs_err=avg_abs_err,
+        avg_rel_err=avg_rel_err,
+        comparison_ngrid=comparison_ngrid,
+        local_n_time=local_n_time,
+        local_truncation_order=local_truncation_order,
+    )
+end
+
+function plot_domain_average_comparison!(comparison_data; figure_size=(12, 10))
+    avg_lbe = comparison_data.avg_lbe
+    avg_clbm = comparison_data.avg_clbm
+    avg_abs_err = comparison_data.avg_abs_err
+    avg_rel_err = comparison_data.avg_rel_err
+    comparison_ngrid = comparison_data.comparison_ngrid
+    local_n_time = comparison_data.local_n_time
+    local_truncation_order = comparison_data.local_truncation_order
+
     time = 1:local_n_time
-    figure(figsize=(12, 10))
+    figure(figsize=figure_size)
     for m = 1:Q
         subplot(3, Q, m)
         plot(time, avg_lbe[m, :], "ok", label="LBM")
@@ -86,11 +128,38 @@ function main(; local_n_time=max(n_time, 40), comparison_ngrid=3, output_basenam
         xlabel("Time step")
         ylabel(latexstring("|\\langle f_{$m} \\rangle^{\\mathrm{CLBM}} - \\langle f_{$m} \\rangle^{\\mathrm{LBM}}| / \\langle f_{$m} \\rangle^{\\mathrm{LBM}}"))
     end
-    suptitle("Domain-averaged CLBM vs LBM, ngrid = $comparison_ngrid, k = $truncation_order")
+    suptitle("Domain-averaged CLBM vs LBM, ngrid = $comparison_ngrid, k = $local_truncation_order")
     tight_layout(rect=(0, 0, 1, 0.96))
 
+    return gcf(), avg_abs_err, avg_rel_err
+end
+
+"""
+    main(; local_n_time, comparison_ngrid, local_truncation_order, output_basename, coeff_method)
+
+Run domain-averaged CLBM vs LBM comparison for D1Q3 multigrid.
+
+Arguments:
+    local_n_time: Number of time steps
+    comparison_ngrid: Number of grid points
+    local_truncation_order: Carleman truncation order (overrides global truncation_order)
+    output_basename: Output file basename (optional)
+    coeff_method: Coefficient generation method (optional)
+
+Example usage:
+    main(local_n_time=100, comparison_ngrid=6, local_truncation_order=4)
+"""
+function main(; local_n_time=max(n_time, 40), comparison_ngrid=3, local_truncation_order=truncation_order, output_basename=nothing, coeff_method=coeff_generation_method)
+    comparison_data = compute_domain_average_comparison(
+        local_n_time=local_n_time,
+        comparison_ngrid=comparison_ngrid,
+        local_truncation_order=local_truncation_order,
+        coeff_method=coeff_method,
+    )
+    _, avg_abs_err, avg_rel_err = plot_domain_average_comparison!(comparison_data)
+
     if output_basename === nothing
-        output_basename = "plot_multigrid_domain_average_D1Q3_ngrid$(comparison_ngrid)_k$(truncation_order)_nt$(local_n_time)"
+        output_basename = "plot_multigrid_domain_average_D1Q3_ngrid$(comparison_ngrid)_k$(local_truncation_order)_nt$(local_n_time)"
     end
 
     output_dir = get(ENV, "QCFD_QCLBM_FIG_DIR", joinpath(homedir(), "Documents", "git-tex", "QC", "QCFD-QCLBM", "figs"))

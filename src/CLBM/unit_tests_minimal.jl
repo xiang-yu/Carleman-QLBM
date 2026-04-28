@@ -99,6 +99,73 @@ include(QCFD_SRC * "CLBM/timeMarching.jl")
         println("✅ Initial conditions work correctly")
     end
 
+    @testset "Numerical coefficient generation matches symbolic D1Q3" begin
+        old_ngrid = ngrid
+
+        try
+            global ngrid = 3
+
+            w, e, w_val, e_val = lbm_const_sym()
+            global w_value = w_val
+            global e_value = e_val
+
+            f, omega, u, rho = collision(Q, D, w, e, rho0, lTaylor, lorder2)
+
+            F1_symbolic, F2_symbolic, F3_symbolic = get_coeff_LBM_Fi_ngrid(
+                poly_order,
+                Q,
+                f,
+                omega,
+                tau_value,
+                ngrid;
+                method=:symbolic,
+            )
+
+            F1_numeric, F2_numeric, F3_numeric = get_coeff_LBM_Fi_ngrid(
+                poly_order,
+                Q,
+                f,
+                omega,
+                tau_value,
+                ngrid;
+                method=:numerical,
+                w_value_input=w_val,
+                e_value_input=e_val,
+                rho_value_input=rho0,
+                lTaylor_input=lTaylor,
+                D_input=D,
+            )
+
+            @test F1_numeric ≈ F1_symbolic atol=1e-12 rtol=1e-12
+            @test F2_numeric ≈ F2_symbolic atol=1e-12 rtol=1e-12
+            @test F3_numeric ≈ F3_symbolic atol=1e-12 rtol=1e-12
+
+            phi_ini = vcat(
+                f_ini_test(0.12),
+                f_ini_test(0.00),
+                f_ini_test(-0.08),
+            )
+            S_lbm, _ = streaming_operator_D1Q3_interleaved(ngrid, 1)
+
+            rhs_symbolic = direct_lbe_rhs_ngrid(phi_ini, S_lbm, F1_symbolic, F2_symbolic, F3_symbolic)
+            rhs_numeric = direct_lbe_rhs_ngrid(phi_ini, S_lbm, F1_numeric, F2_numeric, F3_numeric)
+            @test rhs_numeric ≈ rhs_symbolic atol=1e-12 rtol=1e-12
+
+            global F1_ngrid, F2_ngrid, F3_ngrid = F1_numeric, F2_numeric, F3_numeric
+            phiT_numeric, VT_numeric = timeMarching_state_CLBM_sparse(omega, f, tau_value, Q, truncation_order, dt, phi_ini, 6; S_lbm=S_lbm)
+
+            global F1_ngrid, F2_ngrid, F3_ngrid = F1_symbolic, F2_symbolic, F3_symbolic
+            phiT_symbolic, VT_symbolic = timeMarching_state_CLBM_sparse(omega, f, tau_value, Q, truncation_order, dt, phi_ini, 6; S_lbm=S_lbm)
+
+            @test phiT_numeric ≈ phiT_symbolic atol=1e-12 rtol=1e-12
+            @test VT_numeric ≈ VT_symbolic atol=1e-12 rtol=1e-12
+
+            println("✅ Numerical D1Q3 coefficients reproduce symbolic coefficients and dynamics")
+        finally
+            global ngrid = old_ngrid
+        end
+    end
+
     @testset "ngrid=2 Regression" begin
         old_ngrid = ngrid
         old_use_sparse = use_sparse
