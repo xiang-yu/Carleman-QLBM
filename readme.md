@@ -28,7 +28,25 @@ main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, l_plot=true,
      coeff_method=:numerical, initial_condition=:legacy)
 ```
 
-Runs the primary CLBE driver. For `ngrid = 1`, it preserves the legacy single-point collision test. For `ngrid >= 3`, it runs the multigrid collision+streaming comparison workflow.
+Runs the primary D1Q3 CLBE driver through the legacy-compatible `main(...)` wrapper. For `ngrid = 1`, it preserves the historical single-point collision test. For `ngrid >= 3`, it runs the multigrid collision+streaming comparison workflow. Internally, the driver now builds explicit configuration objects before preparing the runtime state.
+
+If you want to use the newer configuration-oriented API directly:
+
+```julia
+include("src/CLBE/clbe_multigrid_run.jl")
+
+core_cfg, case_cfg = build_d1q3_multigrid_configs(
+    comparison_ngrid=6,
+    local_use_sparse=true,
+    local_n_time=100,
+    local_truncation_order=4,
+    coeff_method=:numerical,
+    initial_condition=:sinusoidal,
+    u_ini=0.1,
+)
+
+run_d1q3_multigrid(case_cfg, core_cfg; l_plot=true)
+```
 
 ```julia
 include("src/CLBE/plot_multigrid_domain_average.jl")
@@ -36,7 +54,7 @@ main(local_n_time=100, comparison_ngrid=6, local_truncation_order=3,
      coeff_method=:numerical, initial_condition=:legacy)
 ```
 
-Plots the multi-grid domain-averaged `f_1`, `f_2`, `f_3` comparison between `CLBE` and the centered finite-difference `LBM`, plus absolute and relative errors.
+Plots the multi-grid domain-averaged `f_1`, `f_2`, `f_3` comparison between `CLBE` and the centered finite-difference `LBM`, plus absolute and relative errors. This plotting script now reuses the shared D1Q3 multigrid runner instead of rebuilding its own mutable runtime configuration.
 
 ```julia
 include("src/CLBE/plot_truncation_order_error_comparison.jl")
@@ -91,7 +109,54 @@ main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, l_plot=true,
      coeff_method=:numerical, initial_condition=:legacy)
 ```
 
-This uses the configuration in [src/CLBE/clbe_config.jl](src/CLBE/clbe_config.jl).
+This uses the defaults defined in [src/CLBE/clbe_config.jl](src/CLBE/clbe_config.jl), but the D1Q3 driver no longer relies on silently scattering multigrid-specific overrides throughout the file. Instead, it constructs explicit run configurations and then prepares the runtime state from them.
+
+### Configuration and driver structure
+
+The D1Q3 code path is now organized into three layers:
+
+- [src/CLBE/clbe_config.jl](src/CLBE/clbe_config.jl)
+  - keeps the legacy global defaults for backward compatibility,
+  - defines `CLBECoreConfig` for shared CLBE/LBE parameters,
+  - defines `D1Q3MultigridConfig` for the D1Q3 test-case / driver parameters,
+  - provides helper constructors such as `default_clbe_core_config()`, `default_d1q3_multigrid_config(...)`, and `build_d1q3_multigrid_configs(...)`.
+
+- [src/CLBE/clbe_multigrid_run.jl](src/CLBE/clbe_multigrid_run.jl)
+  - acts as the D1Q3 driver/test-case layer,
+  - provides `run_d1q3_multigrid(case_cfg, core_cfg; l_plot=...)`,
+  - preserves `main(...)` as a thin compatibility wrapper for quick interactive use.
+
+- Core numerical files such as [src/CLBE/timeMarching.jl](src/CLBE/timeMarching.jl), [src/CLBE/carleman_transferA.jl](src/CLBE/carleman_transferA.jl), and [src/LBE/direct_LBE.jl](src/LBE/direct_LBE.jl)
+  - remain the dynamical core used by the driver.
+
+This separation is meant to make the code easier to read: for example, `LX = LY = LZ = 1` in `clbe_config.jl` now clearly means “default legacy values,” not “the D1Q3 multigrid driver is permanently single-site.”
+
+#### Config-based D1Q3 example
+
+```julia
+include("src/CLBE/clbe_multigrid_run.jl")
+
+core_cfg, case_cfg = build_d1q3_multigrid_configs(
+    comparison_ngrid=6,
+    local_use_sparse=true,
+    local_n_time=100,
+    local_truncation_order=4,
+    coeff_method=:numerical,
+    initial_condition=:sinusoidal,
+    u_ini=0.1,
+)
+
+run_d1q3_multigrid(case_cfg, core_cfg; l_plot=true)
+```
+
+The legacy-compatible wrapper remains available:
+
+```julia
+include("src/CLBE/clbe_multigrid_run.jl")
+main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100,
+     local_truncation_order=4, coeff_method=:numerical,
+     initial_condition=:sinusoidal, u_ini=0.1, l_plot=true)
+```
 
 ### D1Q3 initial-condition options
 
@@ -159,6 +224,7 @@ Important:
 
 - [src/CLBE/clbe_multigrid_run.jl](src/CLBE/clbe_multigrid_run.jl), [src/CLBE/plot_multigrid_domain_average.jl](src/CLBE/plot_multigrid_domain_average.jl), and [src/CLBE/plot_truncation_order_error_comparison.jl](src/CLBE/plot_truncation_order_error_comparison.jl) no longer auto-run on `include(...)`.
 - After including them, explicitly call `main(...)` with the parameters you want.
+- If you want more explicit control than `main(...)`, use `build_d1q3_multigrid_configs(...)` plus `run_d1q3_multigrid(...)`.
 
 The legacy entry point [src/CLBE/clbe_run.jl](src/CLBE/clbe_run.jl) is retained as a thin compatibility wrapper that simply includes [src/CLBE/clbe_multigrid_run.jl](src/CLBE/clbe_multigrid_run.jl).
 
@@ -328,7 +394,7 @@ main(local_n_time=100, comparison_ngrid=6, local_truncation_order=3,
 
 This script does the following:
 
-- sets `ngrid = 3`,
+- sets `ngrid = comparison_ngrid` for the requested D1Q3 run,
 - uses the selected D1Q3 initial condition (`:legacy` or `:sinusoidal`),
 - evolves the direct centered finite-difference n-point LBE,
 - evolves the CLBE with the same centered-difference streaming operator,
@@ -568,15 +634,15 @@ main(k_values=[3, 4], comparison_ngrid=6, local_n_time=100, coeff_method=:numeri
 
 Use this to get:
 
-- `k = 3` versus `k = 4` error curves at fixed `dt = 1`,
+- `k = 3` versus `k = 4` error curves under the shared D1Q3 multigrid time-step convention,
 - domain-averaged absolute and relative errors for each `f_m`,
 - a quick visual check of how truncation order affects long-time behavior.
 
 ## Relevant files
 
-- [src/CLBE/clbe_multigrid_run.jl](src/CLBE/clbe_multigrid_run.jl): primary CLBE operational driver
+- [src/CLBE/clbe_multigrid_run.jl](src/CLBE/clbe_multigrid_run.jl): primary D1Q3 CLBE multigrid driver and compatibility entry point
 - [src/CLBE/clbe_run.jl](src/CLBE/clbe_run.jl): compatibility wrapper for the operational driver
-- [src/CLBE/clbe_config.jl](src/CLBE/clbe_config.jl): shared configuration
+- [src/CLBE/clbe_config.jl](src/CLBE/clbe_config.jl): legacy defaults plus explicit config structs/helpers
 - [src/CLBE/unit_tests_minimal.jl](src/CLBE/unit_tests_minimal.jl): minimal regression tests
 - [src/CLBE/plot_multigrid_domain_average.jl](src/CLBE/plot_multigrid_domain_average.jl): domain-averaged multi-grid comparison plot
 - [src/CLBE/plot_truncation_order_error_comparison.jl](src/CLBE/plot_truncation_order_error_comparison.jl): truncation-order error comparison plot

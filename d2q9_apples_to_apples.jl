@@ -52,33 +52,21 @@ function run_case(case::Case)
         local_truncation_order=case.k,
         reference_model=:direct_lbe,
     )
+    save_dir = joinpath("data", "d2q9_apples_to_apples", case.label)
+    saved_paths = save_tg2d_comparison_hdf5(result; output_dir=save_dir, snapshot_every=max(1, case.n_time ÷ 10))
 
     elapsed = time() - t0
-    phiT_lbe = result.phiT_ref
-    phiT_clbm = result.phiT_clbm
     abs_err = result.dist_abs_err
-    rel_err = result.dist_rel_err
-    ngrid_local = case.nx * case.ny
-
-    avg_lbe = zeros(Q, case.n_time)
-    avg_clbm = zeros(Q, case.n_time)
-    for nt = 1:case.n_time
-        avg_lbe[:, nt]  = vec(mean(reshape(phiT_lbe[:, nt],  Q, ngrid_local), dims=2))
-        avg_clbm[:, nt] = vec(mean(reshape(phiT_clbm[:, nt], Q, ngrid_local), dims=2))
-    end
-    avg_abs_err = abs.(avg_clbm .- avg_lbe)
-    avg_rel_err = avg_abs_err ./ max.(abs.(avg_lbe), eps(Float64))
+    avg_abs_err = result.diagnostics.avg_phi_abs_err
 
     return (
         case = case,
         elapsed = elapsed,
-        ngrid_local = ngrid_local,
-        phiT_lbe = phiT_lbe,
-        phiT_clbm = phiT_clbm,
         abs_err = abs_err,
-        rel_err = rel_err,
         avg_abs_err = avg_abs_err,
-        avg_rel_err = avg_rel_err,
+        density_error_norm = result.density_error_norm,
+        velocity_error_norm = result.vel_abs_err,
+        saved_paths = saved_paths,
     )
 end
 
@@ -98,16 +86,17 @@ for case in cases
     @printf "Wall time: %.1f s\n" r.elapsed
     @printf "Per-site distribution error (|φ_CLBM − φ_direct|):\n"
     @printf "  overall max |Δφ|          = %.3e\n" maximum(r.abs_err)
-    @printf "  overall max rel |Δφ|      = %.3e\n" maximum(r.rel_err)
     @printf "  final-step max |Δφ|       = %.3e\n" maximum(r.abs_err[:, end])
-    @printf "  final-step max rel |Δφ|   = %.3e\n" maximum(r.rel_err[:, end])
     @printf "Domain-averaged error (|<φ_CLBM> − <φ_direct>|):\n"
     @printf "  overall max |Δ<φ>|        = %.3e\n" maximum(r.avg_abs_err)
     @printf "  final-step max |Δ<φ>|     = %.3e\n" maximum(r.avg_abs_err[:, end])
+    @printf "  max density error norm    = %.3e\n" maximum(r.density_error_norm)
+    @printf "  max velocity error norm   = %.3e\n" maximum(r.velocity_error_norm)
     @printf "  per-component (max abs / final abs):\n"
     for m = 1:9
         @printf "    f_%d: max = %.3e   final = %.3e\n" m maximum(r.avg_abs_err[m, :]) r.avg_abs_err[m, end]
     end
+    println("  saved time series: $(r.saved_paths.time_series_path)")
 
     push!(summaries, @sprintf("%-16s  nx=%2d  k=%d  nt=%3d  |Δφ|_max=%.3e  |Δφ|_final=%.3e  |Δ<φ>|_max=%.3e",
         case.label, case.nx, case.k, case.n_time,

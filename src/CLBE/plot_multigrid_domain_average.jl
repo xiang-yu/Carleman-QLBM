@@ -17,71 +17,29 @@ else
     using Symbolics
 end
 
-include("clbe_config.jl")
-include(QCFD_SRC * "CLBE/collision_sym.jl")
-include(QCFD_SRC * "CLBE/carleman_transferA.jl")
-include(QCFD_SRC * "CLBE/carleman_transferA_ngrid.jl")
-include(QCFD_SRC * "CLBE/LBM_const_subs.jl")
-include(QCFD_SRC * "LBM/lbm_cons.jl")
-include(QCFD_SRC * "LBM/lbm_const_sym.jl")
-include(QCFD_SRC * "LBM/forcing.jl")
-include(QCFD_SRC * "LBM/f_initial.jl")
-include(QCFD_SRC * "CLBE/streaming_Carleman.jl")
-include(QCFD_SRC * "CLBE/timeMarching.jl")
-include(QCFD_SRC * "LBE/direct_LBE.jl")
+include("clbe_multigrid_run.jl")
 
 function multigrid_initial_condition(comparison_ngrid; initial_condition=:legacy, u_ini=0.1)
     return d1q3_multigrid_initial_condition(comparison_ngrid; initial_condition=initial_condition, u_ini=u_ini)
 end
 
 function compute_domain_average_comparison(; local_n_time=max(n_time, 40), comparison_ngrid=3, local_truncation_order=truncation_order, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1)
-    # QCFD convention: ngrid = LX * LY * LZ. For D1Q3 multigrid the flow is
-    # 1D, so LY = LZ = 1 and LX = comparison_ngrid.
-    global LX = comparison_ngrid
-    global LY = 1
-    global LZ = 1
-    global ngrid = LX * LY * LZ
-    global use_sparse = true
-    global truncation_order = local_truncation_order
-    global coeff_generation_method = coeff_method
-    # Explicit-Euler stability on the lifted Carleman operator: the config
-    # default dt = 1.0 (LBM lattice-time unit) is unstable for multi-step
-    # runs. Override to tau_value / 10 for this driver. Matches D2Q9.
-    global dt = tau_value / 10
-
-    w, e, w_val, e_val = lbm_const_sym()
-    global w_value = w_val
-    global e_value = e_val
-
-    f, omega, u, rho = collision(Q, D, w, e, rho0, lTaylor, lorder2)
-    global F1_ngrid, F2_ngrid, F3_ngrid = get_coeff_LBM_Fi_ngrid(
-        poly_order,
-        Q,
-        f,
-        omega,
-        tau_value,
-        comparison_ngrid;
-        method=coeff_generation_method,
-        w_value_input=w_value,
-        e_value_input=e_value,
-        rho_value_input=rho0,
-        lTaylor_input=lTaylor,
-        D_input=D,
+    core_cfg, case_cfg = build_d1q3_multigrid_configs(
+        comparison_ngrid=comparison_ngrid,
+        local_use_sparse=true,
+        local_n_time=local_n_time,
+        local_truncation_order=local_truncation_order,
+        coeff_method=coeff_method,
+        initial_condition=initial_condition,
+        u_ini=u_ini,
     )
-
-    phi_ini = multigrid_initial_condition(comparison_ngrid; initial_condition=initial_condition, u_ini=u_ini)
-
-    S_lbm, _ = streaming_operator_D1Q3_interleaved(comparison_ngrid, 1)
-    phiT_lbe = timeMarching_direct_LBE_ngrid(phi_ini, dt, local_n_time, F1_ngrid, F2_ngrid, F3_ngrid; S_lbm=S_lbm)
-    phiT_clbm, VT = timeMarching_state_CLBM_sparse(omega, f, tau_value, Q, local_truncation_order, dt, phi_ini, local_n_time)
+    phiT_lbe, phiT_clbm, VT, avg_abs_err, avg_rel_err = run_d1q3_multigrid(case_cfg, core_cfg; l_plot=false)
 
     avg_lbe = domain_average_distribution_history(phiT_lbe, Q, comparison_ngrid)
     avg_clbm = domain_average_distribution_history(phiT_clbm, Q, comparison_ngrid)
-    avg_abs_err = abs.(avg_clbm .- avg_lbe)
-    avg_rel_err = avg_abs_err ./ max.(abs.(avg_lbe), eps(Float64))
 
     return (
-        phi_ini=phi_ini,
+        phi_ini=multigrid_initial_condition(comparison_ngrid; initial_condition=initial_condition, u_ini=u_ini),
         phiT_lbe=phiT_lbe,
         phiT_clbm=phiT_clbm,
         VT=VT,
