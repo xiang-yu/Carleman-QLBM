@@ -16,7 +16,7 @@ else
     using Symbolics
 end
 
-include("clbe_config.jl")
+include("clbe_config_2D.jl")
 
 include(QCFD_SRC * "CLBE/collision_sym.jl")
 include(QCFD_SRC * "CLBE/carleman_transferA.jl")
@@ -25,6 +25,7 @@ include(QCFD_SRC * "CLBE/LBM_const_subs.jl")
 include(QCFD_SRC * "LBM/lbm_const_sym.jl")
 include(QCFD_SRC * "LBM/cal_feq.jl")
 include(QCFD_SRC * "LBM/tg_d2q9_lbm_run.jl")
+include(QCFD_SRC * "LBE/direct_LBE.jl")
 include(QCFD_SRC * "CLBE/timeMarching.jl")
 
 function streaming_operator_D2Q9_interleaved_periodic(nx, ny, hx, hy)
@@ -338,6 +339,97 @@ function build_numerical_tg_reference(; nx, ny, amplitude, rho_value, tau_value,
     )
 end
 
+function initialize_d2q9_tg_globals!(; nx, ny, rho_value, coeff_method, local_truncation_order)
+    # QCFD convention: ngrid = LX * LY * LZ. D2Q9 TG flow is 2D, so LZ = 1.
+    global LX = nx
+    global LY = ny
+    global LZ = 1
+    global ngrid = LX * LY * LZ
+    global Q = 9
+    global D = 2
+    global use_sparse = true
+    global force_factor = 0.0
+    global rho0 = rho_value
+    global lTaylor = true
+    global truncation_order = local_truncation_order
+    global coeff_generation_method = coeff_method
+
+    return ngrid
+end
+
+function build_direct_lbe_tg_reference(; nx, ny, amplitude, rho_value, local_n_time, boundary_setup, setup)
+    case_label = boundary_setup ? "2D TG direct n-point LBE boundary-aware test" : "2D TG direct n-point LBE periodic test"
+
+    if boundary_setup
+        println("Using direct n-point LBE with the same boundary-aware centered-difference D2Q9 streaming operator as CLBE.")
+    else
+        println("Using direct n-point LBE with the same periodic centered-difference D2Q9 streaming operator as CLBE.")
+    end
+
+    phi_ini = tg2d_initial_condition(
+        nx,
+        ny,
+        amplitude,
+        rho_value,
+        setup.numeric_weights,
+        setup.numeric_velocities,
+        setup.a_val,
+        setup.b_val,
+        setup.c_val,
+        setup.d_val,
+    )
+
+    hx = 1.0
+    hy = 1.0
+    S_lbm, _ = select_d2q9_streaming_operator(nx, ny, hx, hy; boundary_setup=boundary_setup)
+    reference_phi_history = timeMarching_direct_LBE_ngrid(
+        phi_ini,
+        dt,
+        local_n_time,
+        setup.carleman_F1,
+        setup.carleman_F2,
+        setup.carleman_F3;
+        S_lbm=S_lbm,
+    )
+
+    return (
+        case_label=case_label,
+        reference_initial_state=phi_ini,
+        reference_phi_history=reference_phi_history,
+        S_lbm=S_lbm,
+    )
+end
+
+function build_tg_reference(; nx, ny, amplitude, rho_value, tau_value, local_n_time, boundary_setup, reference_model, setup)
+    if reference_model == :direct_lbe
+        return build_direct_lbe_tg_reference(
+            nx=nx,
+            ny=ny,
+            amplitude=amplitude,
+            rho_value=rho_value,
+            local_n_time=local_n_time,
+            boundary_setup=boundary_setup,
+            setup=setup,
+        )
+    elseif reference_model == :lbm
+        reference = build_numerical_tg_reference(
+            nx=nx,
+            ny=ny,
+            amplitude=amplitude,
+            rho_value=rho_value,
+            tau_value=tau_value,
+            local_n_time=local_n_time,
+            boundary_setup=boundary_setup,
+        )
+        hx = 1.0
+        hy = 1.0
+        S_lbm, _ = select_d2q9_streaming_operator(nx, ny, hx, hy; boundary_setup=boundary_setup)
+        return merge(reference, (S_lbm=S_lbm,))
+    else
+        error("Unsupported reference_model=$(reference_model). Supported values are :direct_lbe and :lbm.")
+    end
+end
+
 function build_symbolic_carleman_setup(; rho_value, nspatial)
     println("Using symbolic D2Q9 LBM only to derive Carleman operators.")
 
@@ -430,7 +522,7 @@ function select_d2q9_streaming_operator(nx, ny, hx, hy; boundary_setup=false)
     return streaming_operator_D2Q9_interleaved_periodic(nx, ny, hx, hy)
 end
 
-function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001, local_n_time=10, l_plot=false, boundary_setup=false, coeff_method=coeff_generation_method, local_truncation_order=truncation_order)
+function run_tg2d_clbe_comparison(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001, local_n_time=n_time, boundary_setup=false, coeff_method=coeff_generation_method, local_truncation_order=truncation_order, reference_model=:direct_lbe)
     if nx < 3 || ny < 3
         error("Use nx >= 3 and ny >= 3 for non-degenerate periodic centered-difference TG streaming.")
     end
@@ -439,21 +531,23 @@ function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001, local_n_time=10, l
         error("local_truncation_order must satisfy local_truncation_order >= poly_order. Got local_truncation_order = $(local_truncation_order), poly_order = $(poly_order).")
     end
 
-    # QCFD convention: ngrid = LX * LY * LZ. D2Q9 TG flow is 2D, so LZ = 1.
-    global LX = nx
-    global LY = ny
-    global LZ = 1
-    global ngrid = LX * LY * LZ
-    global Q = 9
-    global D = 2
-    global use_sparse = true
-    global force_factor = 0.0
-    global rho0 = rho_value
-    global lTaylor = true
-    global truncation_order = local_truncation_order
-    global coeff_generation_method = coeff_method
+    ngrid_local = initialize_d2q9_tg_globals!(
+        nx=nx,
+        ny=ny,
+        rho_value=rho_value,
+        coeff_method=coeff_method,
+        local_truncation_order=local_truncation_order,
+    )
 
-    numerical_reference = build_numerical_tg_reference(
+    setup = build_carleman_setup(rho_value=rho_value, nspatial=ngrid_local, method=coeff_generation_method)
+
+    global w_value = setup.numeric_weights
+    global e_value = setup.numeric_velocities
+    global F1_ngrid = setup.carleman_F1
+    global F2_ngrid = setup.carleman_F2
+    global F3_ngrid = setup.carleman_F3
+
+    reference = build_tg_reference(
         nx=nx,
         ny=ny,
         amplitude=amplitude,
@@ -461,40 +555,90 @@ function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001, local_n_time=10, l
         tau_value=tau_value,
         local_n_time=local_n_time,
         boundary_setup=boundary_setup,
+        reference_model=reference_model,
+        setup=setup,
     )
-    symbolic_setup = build_carleman_setup(rho_value=rho_value, nspatial=ngrid, method=coeff_generation_method)
 
-    global w_value = symbolic_setup.numeric_weights
-    global e_value = symbolic_setup.numeric_velocities
-    global F1_ngrid = symbolic_setup.carleman_F1
-    global F2_ngrid = symbolic_setup.carleman_F2
-    global F3_ngrid = symbolic_setup.carleman_F3
+    phi_ini = reference.reference_initial_state
+    phiT_ref = reference.reference_phi_history
+    S_lbm = reference.S_lbm
+    case_label = reference.case_label
 
-    case_label = numerical_reference.case_label
-    phi_ini = numerical_reference.reference_initial_state
-    phiT_lbe = numerical_reference.reference_phi_history
-    hx = 1.0
-    hy = 1.0
-    S_lbm, _ = select_d2q9_streaming_operator(nx, ny, hx, hy; boundary_setup=boundary_setup)
+    phiT_clbm, VT = timeMarching_state_CLBM_sparse(
+        setup.symbolic_collision,
+        setup.symbolic_state,
+        tau_value,
+        Q,
+        truncation_order,
+        dt,
+        phi_ini,
+        local_n_time;
+        S_lbm=S_lbm,
+        nspatial=ngrid_local,
+    )
 
-    phiT_clbm, VT = timeMarching_state_CLBM_sparse(symbolic_setup.symbolic_collision, symbolic_setup.symbolic_state, tau_value, Q, truncation_order, dt, phi_ini, local_n_time; S_lbm=S_lbm, nspatial=ngrid)
+    dist_abs_err = abs.(phiT_clbm .- phiT_ref)
+    dist_rel_err = dist_abs_err ./ max.(abs.(phiT_ref), eps(Float64))
+    vel_abs_err, vel_rel_err = velocity_error_history(phiT_ref, phiT_clbm, nx, ny, e_value)
 
-    dist_abs_err = abs.(phiT_clbm .- phiT_lbe)
-    dist_rel_err = dist_abs_err ./ max.(abs.(phiT_lbe), eps(Float64))
-    vel_abs_err, vel_rel_err = velocity_error_history(phiT_lbe, phiT_clbm, nx, ny, e_value)
+    return (
+        case_label=case_label,
+        reference_model=reference_model,
+        phi_ini=phi_ini,
+        phiT_ref=phiT_ref,
+        phiT_clbm=phiT_clbm,
+        VT=VT,
+        dist_abs_err=dist_abs_err,
+        dist_rel_err=dist_rel_err,
+        vel_abs_err=vel_abs_err,
+        vel_rel_err=vel_rel_err,
+        e_value=e_value,
+        setup=setup,
+        S_lbm=S_lbm,
+        nx=nx,
+        ny=ny,
+        local_n_time=local_n_time,
+        local_truncation_order=local_truncation_order,
+        rho_value=rho_value,
+        amplitude=amplitude,
+    )
+end
 
-    println("Running $(case_label) CLBE/LBM comparison")
+function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001, local_n_time=n_time, l_plot=false, boundary_setup=false, coeff_method=coeff_generation_method, local_truncation_order=truncation_order, reference_model=:direct_lbe)
+    result = run_tg2d_clbe_comparison(
+        nx=nx,
+        ny=ny,
+        amplitude=amplitude,
+        rho_value=rho_value,
+        local_n_time=local_n_time,
+        boundary_setup=boundary_setup,
+        coeff_method=coeff_method,
+        local_truncation_order=local_truncation_order,
+        reference_model=reference_model,
+    )
+
+    phiT_lbe = result.phiT_ref
+    phiT_clbm = result.phiT_clbm
+    VT = result.VT
+    dist_abs_err = result.dist_abs_err
+    dist_rel_err = result.dist_rel_err
+    vel_abs_err = result.vel_abs_err
+    vel_rel_err = result.vel_rel_err
+    case_label = result.case_label
+
+    println("Running $(case_label) CLBE comparison")
     println("  grid = $(nx)×$(ny)")
     println("  Q = $Q, D = $D")
     println("  poly_order = $poly_order, truncation_order = $truncation_order")
     println("  n_time = $local_n_time")
+    println("  reference_model = $(reference_model)")
     println("Max distribution absolute difference = ", maximum(dist_abs_err))
     println("Max distribution relative difference = ", maximum(dist_rel_err))
     println("Max velocity absolute error norm = ", maximum(vel_abs_err))
     println("Max velocity relative error norm = ", maximum(vel_rel_err))
 
     if l_plot
-        plot_tg2d_comparison(phiT_lbe, phiT_clbm, nx, ny, e_value, local_n_time, truncation_order; case_label=case_label)
+        plot_tg2d_comparison(phiT_lbe, phiT_clbm, nx, ny, result.e_value, local_n_time, truncation_order; case_label=case_label)
     end
 
     return phiT_lbe, phiT_clbm, VT, dist_abs_err, dist_rel_err, vel_abs_err, vel_rel_err

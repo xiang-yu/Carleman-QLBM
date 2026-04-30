@@ -39,53 +39,26 @@ cases = Case[
 ]
 
 function run_case(case::Case)
-    nx = case.nx; ny = case.ny
-    # QCFD convention: ngrid = LX * LY * LZ.
-    global LX = nx; global LY = ny; global LZ = 1
-    global ngrid = LX * LY * LZ
-    ngrid_local = ngrid
-    global Q = 9; global D = 2; global use_sparse = true
-    global force_factor = 0.0
-    global rho0 = 1.0001          # same as D1Q3 multigrid
-    global lTaylor = true
-    global truncation_order = case.k
-    # Explicit-Euler stability: override the LBM-unit default dt=1.0 from
-    # clbe_config.jl. Both CLBM and direct n-point LBE use the same dt here,
-    # so the self-consistency comparison remains exact.
-    global dt = 0.1
-    # Keep global dt at clbe_config.jl default (0.1) -- same as D1Q3 strategy.
-
-    setup = build_carleman_setup(rho_value=rho0, nspatial=ngrid_local, method=:numerical)
-    global w_value = setup.numeric_weights
-    global e_value = setup.numeric_velocities
-    global F1_ngrid = setup.carleman_F1
-    global F2_ngrid = setup.carleman_F2
-    global F3_ngrid = setup.carleman_F3
-
-    # Initial state — same as TG driver, but with rho_value = 1.0001.
-    phi_ini = tg2d_initial_condition(nx, ny, case.amplitude, rho0,
-        w_value, e_value, 1.0, 3.0, 9.0/2.0, -3.0/2.0)
-
-    # Centered-difference periodic D2Q9 streaming (the CLBM and direct n-point
-    # LBE must agree on the streaming operator).
-    S_lbm, _ = streaming_operator_D2Q9_interleaved_periodic(nx, ny, 1.0, 1.0)
-
     t0 = time()
 
-    # Direct semi-discrete n-point LBE (explicit Euler, same F, same S, same dt)
-    phiT_lbe = timeMarching_direct_LBE_ngrid(phi_ini, dt, case.n_time,
-        F1_ngrid, F2_ngrid, F3_ngrid; S_lbm=S_lbm)
-
-    # CLBM assembled sparse time marching (same F, same S, same dt)
-    phiT_clbm, _VT = timeMarching_state_CLBM_sparse(
-        setup.symbolic_collision, setup.symbolic_state, 1.0, Q, case.k,
-        dt, phi_ini, case.n_time;
-        S_lbm=S_lbm, nspatial=ngrid_local,
+    result = run_tg2d_clbe_comparison(
+        nx=case.nx,
+        ny=case.ny,
+        amplitude=case.amplitude,
+        rho_value=1.0001,
+        local_n_time=case.n_time,
+        boundary_setup=false,
+        coeff_method=:numerical,
+        local_truncation_order=case.k,
+        reference_model=:direct_lbe,
     )
 
     elapsed = time() - t0
-    abs_err = abs.(phiT_clbm .- phiT_lbe)
-    rel_err = abs_err ./ max.(abs.(phiT_lbe), eps(Float64))
+    phiT_lbe = result.phiT_ref
+    phiT_clbm = result.phiT_clbm
+    abs_err = result.dist_abs_err
+    rel_err = result.dist_rel_err
+    ngrid_local = case.nx * case.ny
 
     avg_lbe = zeros(Q, case.n_time)
     avg_clbm = zeros(Q, case.n_time)
