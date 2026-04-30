@@ -517,7 +517,7 @@ function initialize_d2q9_tg_globals!(; nx, ny, rho_value, coeff_method, local_tr
     return ngrid
 end
 
-function build_direct_lbe_tg_reference(; nx, ny, amplitude, rho_value, local_n_time, boundary_setup, setup)
+function build_direct_lbe_tg_reference(; nx, ny, amplitude, rho_value, local_n_time, boundary_setup, setup, direct_lbe_integrator=:euler)
     case_label = boundary_setup ? "2D TG direct n-point LBE boundary-aware test" : "2D TG direct n-point LBE periodic test"
 
     if boundary_setup
@@ -550,6 +550,7 @@ function build_direct_lbe_tg_reference(; nx, ny, amplitude, rho_value, local_n_t
         setup.carleman_F2,
         setup.carleman_F3;
         S_lbm=S_lbm,
+        integrator=direct_lbe_integrator,
     )
 
     return (
@@ -560,7 +561,7 @@ function build_direct_lbe_tg_reference(; nx, ny, amplitude, rho_value, local_n_t
     )
 end
 
-function build_tg_reference(; nx, ny, amplitude, rho_value, tau_value, local_n_time, boundary_setup, reference_model, setup)
+function build_tg_reference(; nx, ny, amplitude, rho_value, tau_value, local_n_time, boundary_setup, reference_model, setup, direct_lbe_integrator=:euler)
     if reference_model == :direct_lbe
         return build_direct_lbe_tg_reference(
             nx=nx,
@@ -570,6 +571,7 @@ function build_tg_reference(; nx, ny, amplitude, rho_value, tau_value, local_n_t
             local_n_time=local_n_time,
             boundary_setup=boundary_setup,
             setup=setup,
+            direct_lbe_integrator=direct_lbe_integrator,
         )
     elseif reference_model == :lbm
         reference = build_numerical_tg_reference(
@@ -682,7 +684,7 @@ function select_d2q9_streaming_operator(nx, ny, hx, hy; boundary_setup=false)
     return streaming_operator_D2Q9_interleaved_periodic(nx, ny, hx, hy)
 end
 
-function run_tg2d_clbe_comparison(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001, local_n_time=n_time, boundary_setup=false, coeff_method=coeff_generation_method, local_truncation_order=truncation_order, reference_model=:direct_lbe, integrator=:euler)
+function run_tg2d_clbe_comparison(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001, local_n_time=n_time, boundary_setup=false, coeff_method=coeff_generation_method, local_truncation_order=truncation_order, reference_model=:direct_lbe, integrator=:euler, direct_lbe_integrator=:euler)
     if nx < 3 || ny < 3
         error("Use nx >= 3 and ny >= 3 for non-degenerate periodic centered-difference TG streaming.")
     end
@@ -717,6 +719,7 @@ function run_tg2d_clbe_comparison(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001
         boundary_setup=boundary_setup,
         reference_model=reference_model,
         setup=setup,
+        direct_lbe_integrator=direct_lbe_integrator,
     )
 
     phi_ini = reference.reference_initial_state
@@ -765,7 +768,7 @@ function run_tg2d_clbe_comparison(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001
     )
 end
 
-function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001, local_n_time=n_time, l_plot=false, boundary_setup=false, coeff_method=coeff_generation_method, local_truncation_order=truncation_order, reference_model=:direct_lbe, save_output=false, output_dir="data/tg2d_clbe_comparison", snapshot_every=0, integrator=:euler)
+function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001, local_n_time=n_time, l_plot=false, boundary_setup=false, coeff_method=coeff_generation_method, local_truncation_order=truncation_order, reference_model=:direct_lbe, save_output=false, output_dir="data/tg2d_clbe_comparison", snapshot_every=0, integrator=:euler, direct_lbe_integrator=:euler)
     result = run_tg2d_clbe_comparison(
         nx=nx,
         ny=ny,
@@ -777,6 +780,7 @@ function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001, local_n_time=n_tim
         local_truncation_order=local_truncation_order,
         reference_model=reference_model,
         integrator=integrator,
+        direct_lbe_integrator=direct_lbe_integrator,
     )
 
     if save_output

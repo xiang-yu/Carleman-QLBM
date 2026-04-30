@@ -30,6 +30,33 @@ main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, l_plot=true,
 
 Runs the primary D1Q3 CLBE driver through the legacy-compatible `main(...)` wrapper. For `ngrid = 1`, it preserves the historical single-point collision test. For `ngrid >= 3`, it runs the multigrid collision+streaming comparison workflow. Internally, the driver now builds explicit configuration objects before preparing the runtime state.
 
+For the newer apples-to-apples CLBE vs direct-LBE ETD workflow, a representative D1Q3 run from the repository root is:
+
+```bash
+julia --project=. -e '
+ENV["QCFD_HOME"] = pwd()
+ENV["QCFD_SRC"] = pwd() * "/src/"
+include("src/CLBE/clbe_multigrid_run.jl")
+Main.main(
+    comparison_ngrid=6,
+    local_n_time=10,
+    local_truncation_order=3,
+    l_plot=false,
+    coeff_method=:numerical,
+    initial_condition=:legacy,
+    dt_override=1.0,
+    integrator=:matrix_exponential,
+    direct_lbe_integrator=:exponential_euler,
+)
+'
+```
+
+In this mode:
+
+- `integrator=:matrix_exponential` selects the CLBE exponential time march,
+- `direct_lbe_integrator=:exponential_euler` selects the direct n-point LBE ETD / exponential-Euler reference,
+- `local_n_time` is used **exactly as passed** and is no longer floored to a minimum of 40.
+
 If you want to use the newer configuration-oriented API directly:
 
 ```julia
@@ -211,6 +238,37 @@ main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100,
      initial_condition=:legacy, dt_override=0.05)
 ```
 
+### D1Q3 CLBE vs direct-LBE ETD run
+
+If you want the direct n-point LBE reference to use the new exponential-Euler / ETD step, run:
+
+```bash
+julia --project=. -e '
+ENV["QCFD_HOME"] = pwd()
+ENV["QCFD_SRC"] = pwd() * "/src/"
+include("src/CLBE/clbe_multigrid_run.jl")
+Main.main(
+    comparison_ngrid=6,
+    local_n_time=10,
+    local_truncation_order=3,
+    l_plot=false,
+    coeff_method=:numerical,
+    initial_condition=:legacy,
+    dt_override=1.0,
+    integrator=:matrix_exponential,
+    direct_lbe_integrator=:exponential_euler,
+)
+'
+```
+
+Accepted direct-LBE ETD keywords are:
+
+- `:exponential_euler`
+- `:etd`
+- `:etd1`
+
+This is the recommended D1Q3 comparison mode when you want the CLBE and direct-LBE references to use compatible exponential-style time integration.
+
 ### Carleman coefficient-generation mode
 
 The CLBE drivers support two Carleman coefficient-generation modes:
@@ -324,13 +382,36 @@ The current debug benchmark is the periodic D2Q9 Taylor–Green case
 - `local_truncation_order = 3`,
 - `poly_order = 3`,
 - `coeff_method = :numerical`,
-- `local_n_time = 3`.
+- `local_n_time = 10`.
 
 A representative run from the repository root is:
 
 ```bash
-julia --project=. -e 'ENV["QCFD_SRC"]=pwd()*"/src/"; ENV["QCFD_HOME"]=pwd(); include("src/CLBE/clbe_tg2d_run.jl"); main(nx=3, ny=3, amplitude=0.02, rho_value=1.0, local_n_time=3, l_plot=false, boundary_setup=false, coeff_method=:numerical, local_truncation_order=3)'
+julia --project=. -e '
+ENV["QCFD_HOME"] = pwd()
+ENV["QCFD_SRC"] = pwd() * "/src/"
+include("src/CLBE/clbe_tg2d_run.jl")
+Main.main(
+    nx=3,
+    ny=3,
+    amplitude=0.02,
+    local_n_time=10,
+    l_plot=false,
+    boundary_setup=false,
+    coeff_method=:numerical,
+    local_truncation_order=3,
+    reference_model=:direct_lbe,
+    integrator=:matrix_exponential,
+    direct_lbe_integrator=:exponential_euler,
+)
+'
 ```
+
+This D2Q9 command uses:
+
+- `reference_model=:direct_lbe` for the direct semi-discrete n-point LBE reference,
+- `integrator=:matrix_exponential` for the CLBE evolution,
+- `direct_lbe_integrator=:exponential_euler` for the direct-LBE ETD step.
 
 ### Current Carleman size and cost
 
@@ -347,20 +428,19 @@ This means the D2Q9 path is now runnable for the minimal debug case, but it is s
 
 ### Current error metrics
 
-For the completed periodic `3 × 3`, `k = 3`, `nt = 3` run, the driver reported:
+For a completed periodic `3 × 3`, `k = 3`, `nt = 10` ETD/direct-LBE run, the driver reported:
 
 ```text
-Max distribution absolute difference = 0.01126333024919772
-Max distribution relative difference = 0.10682459909765085
-Max velocity absolute error norm = 0.04242715067873692
-Max velocity relative error norm = 155.89166394701334
+Max distribution absolute difference = 2.3625020644790773e-6
+Max density error norm = 1.7779930206620513e-7
+Max velocity absolute error norm = 8.636228821668745e-7
 ```
 
 So the current status is:
 
 - the minimal D2Q9 CLBE case now runs to completion,
 - the sparse assembly bottleneck has been reduced enough for the short debug case,
-- the CLBE solution is **not yet quantitatively matching** the reference D2Q9 LBM.
+- the current minimal periodic ETD/direct-LBE comparison gives a close match on this small debug case.
 
 ### What to do next
 
@@ -587,13 +667,44 @@ Run a small 2D CLBE TG test from Julia with:
 
 ```julia
 include("src/CLBE/clbe_tg2d_run.jl")
-main(nx=3, ny=3, amplitude=0.02, local_n_time=4, l_plot=false, coeff_method=:numerical)
+main(nx=3, ny=3, amplitude=0.02, local_n_time=10, l_plot=false,
+     boundary_setup=false, coeff_method=:numerical,
+     local_truncation_order=3, reference_model=:direct_lbe,
+     integrator=:matrix_exponential,
+     direct_lbe_integrator=:exponential_euler)
 ```
 
 Important note:
 
 - the pure numerical D2Q9 LBM TG benchmark is working and validated against the analytical periodic solution,
-- the full 2D CLBE path is still experimental because symbolic D2Q9 Carleman coefficient generation is much heavier than the 1D D1Q3 workflow.
+- the full 2D CLBE path is still computationally heavy, but the minimal periodic direct-LBE ETD comparison is now runnable and useful as a debug / regression case.
+
+## ETD regression / smoke-test script
+
+The repository includes a dedicated ETD test driver:
+
+- [test_direct_lbe_etd.jl](test_direct_lbe_etd.jl)
+
+Run it from the repository root with:
+
+```bash
+julia --project=. test_direct_lbe_etd.jl
+```
+
+This script runs three checks:
+
+- a linear exactness test for the direct-LBE exponential-Euler step,
+- a D1Q3 CLBE-vs-direct-LBE ETD smoke test,
+- a D2Q9 Taylor-Green CLBE-vs-direct-LBE ETD smoke test.
+
+The expected ending summary is:
+
+```text
+linear_etd_accuracy          : PASS
+d1q3_etd_smoke               : PASS
+d2q9_etd_smoke               : PASS
+All ETD tests passed.
+```
 
 ## Which script to run for which result
 
@@ -605,6 +716,62 @@ main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, l_plot=true, c
 ```
 
 Use this for the standard configured CLBE run and plot.
+
+### Run the D1Q3 ETD comparison
+
+```bash
+julia --project=. -e '
+ENV["QCFD_HOME"] = pwd()
+ENV["QCFD_SRC"] = pwd() * "/src/"
+include("src/CLBE/clbe_multigrid_run.jl")
+Main.main(
+    comparison_ngrid=6,
+    local_n_time=10,
+    local_truncation_order=3,
+    l_plot=false,
+    coeff_method=:numerical,
+    initial_condition=:legacy,
+    dt_override=1.0,
+    integrator=:matrix_exponential,
+    direct_lbe_integrator=:exponential_euler,
+)
+'
+```
+
+Use this for the D1Q3 CLBE-vs-direct-LBE apples-to-apples ETD comparison.
+
+### Run the D2Q9 TG ETD comparison
+
+```bash
+julia --project=. -e '
+ENV["QCFD_HOME"] = pwd()
+ENV["QCFD_SRC"] = pwd() * "/src/"
+include("src/CLBE/clbe_tg2d_run.jl")
+Main.main(
+    nx=3,
+    ny=3,
+    amplitude=0.02,
+    local_n_time=10,
+    l_plot=false,
+    boundary_setup=false,
+    coeff_method=:numerical,
+    local_truncation_order=3,
+    reference_model=:direct_lbe,
+    integrator=:matrix_exponential,
+    direct_lbe_integrator=:exponential_euler,
+)
+'
+```
+
+Use this for the minimal periodic D2Q9 Taylor-Green CLBE-vs-direct-LBE ETD comparison.
+
+### Run all ETD checks
+
+```bash
+julia --project=. test_direct_lbe_etd.jl
+```
+
+Use this to run the linear ETD accuracy test plus the D1Q3 and D2Q9 smoke tests in one command.
 
 ### Verify the corrected multi-grid implementation
 
@@ -662,5 +829,6 @@ Use this to get:
 - [src/CLBE/plot_truncation_order_error_comparison.jl](src/CLBE/plot_truncation_order_error_comparison.jl): truncation-order error comparison plot
 - [src/CLBE/timeMarching.jl](src/CLBE/timeMarching.jl): CLBE time marching helpers (sparse and dense)
 - [src/CLBE/streaming_Carleman.jl](src/CLBE/streaming_Carleman.jl): centered finite-difference streaming operators
+- [test_direct_lbe_etd.jl](test_direct_lbe_etd.jl): ETD regression / smoke-test driver for direct-LBE and CLBE comparisons
 - [src/LBE/direct_LBE.jl](src/LBE/direct_LBE.jl): direct semi-discrete n-point LBE reference ODE
 - [src/LBM/streaming.jl](src/LBM/streaming.jl): exact lattice-shift streaming implementation

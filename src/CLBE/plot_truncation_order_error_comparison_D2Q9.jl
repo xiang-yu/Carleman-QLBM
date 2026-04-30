@@ -25,7 +25,7 @@ polynomial decomposition is well-posed and the ⟨ρ⟩ ≈ 1 Taylor assumption
 of Li et al. holds. The `:matrix_exponential` integrator uses a sparse
 Krylov expv-style propagator for large lifted systems.
 """
-function main(; k_values=[3, 4], nx=3, ny=3, amplitude=0.02, local_n_time=100, coeff_method=:numerical, integrator=:euler)
+function main(; k_values=[3, 4], nx=3, ny=3, amplitude=0.02, local_n_time=100, coeff_method=:numerical, integrator=:euler, direct_lbe_integrator=:euler)
     if length(k_values) != 2
         error("This simplified script is intended for exactly two truncation orders, e.g. k_values=[3, 4].")
     end
@@ -60,7 +60,7 @@ function main(; k_values=[3, 4], nx=3, ny=3, amplitude=0.02, local_n_time=100, c
         S_lbm, _ = streaming_operator_D2Q9_interleaved_periodic(nx, ny, 1.0, 1.0)
 
         phiT_lbe = timeMarching_direct_LBE_ngrid(phi_ini, dt, local_n_time,
-            F1_ngrid, F2_ngrid, F3_ngrid; S_lbm=S_lbm)
+            F1_ngrid, F2_ngrid, F3_ngrid; S_lbm=S_lbm, integrator=direct_lbe_integrator)
         phiT_clbm, _ = timeMarching_state_CLBM_sparse(
             setup.symbolic_collision, setup.symbolic_state, 1.0, Q, k,
             dt, phi_ini, local_n_time; S_lbm=S_lbm, nspatial=ngrid_local, integrator=integrator,
