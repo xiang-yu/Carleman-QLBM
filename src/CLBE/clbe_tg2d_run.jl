@@ -4,6 +4,9 @@ QCFD_HOME = ENV["QCFD_HOME"]
 
 using PyPlot
 using LaTeXStrings
+using HDF5
+using Statistics
+using Printf
 
 include(QCFD_HOME * "/visualization/plot_kit.jl")
 
@@ -236,22 +239,181 @@ function macroscopic_fields_from_state(phi, nx, ny, e_value)
     return rho, ux, uy
 end
 
+function per_site_macroscopic(phi, Q, ngrid, e_val)
+    n_time = size(phi, 2)
+    rho_field = zeros(ngrid, n_time)
+    umag_field = zeros(ngrid, n_time)
+
+    for nt = 1:n_time
+        f = reshape(phi[:, nt], Q, ngrid)
+        for s = 1:ngrid
+            rho_local = sum(f[:, s])
+            rho_field[s, nt] = rho_local
+            ux = sum(e_val[k][1] * f[k, s] for k = 1:Q) / max(rho_local, eps())
+            uy = sum(e_val[k][2] * f[k, s] for k = 1:Q) / max(rho_local, eps())
+            umag_field[s, nt] = sqrt(ux^2 + uy^2)
+        end
+    end
+
+    return rho_field, umag_field
+end
+
+function domain_average_distribution_history(phiT, Q, ngrid)
+    n_time = size(phiT, 2)
+    avg_phi = zeros(Q, n_time)
+
+    for nt = 1:n_time
+        avg_phi[:, nt] = vec(mean(reshape(phiT[:, nt], Q, ngrid), dims=2))
+    end
+
+    return avg_phi
+end
+
+function density_error_history(phiT_ref, phiT_clbm, nx, ny, e_value)
+    n_time = size(phiT_ref, 2)
+    abs_err = zeros(n_time)
+
+    for nt in 1:n_time
+        rho_ref, _, _ = macroscopic_fields_from_state(phiT_ref[:, nt], nx, ny, e_value)
+        rho_clbm, _, _ = macroscopic_fields_from_state(phiT_clbm[:, nt], nx, ny, e_value)
+        abs_err[nt] = norm(vec(rho_clbm - rho_ref))
+    end
+
+    return abs_err
+end
+
 function velocity_error_history(phiT_ref, phiT_clbm, nx, ny, e_value)
     n_time = size(phiT_ref, 2)
     abs_err = zeros(n_time)
-    rel_err = zeros(n_time)
 
     for nt in 1:n_time
         _, ux_ref, uy_ref = macroscopic_fields_from_state(phiT_ref[:, nt], nx, ny, e_value)
         _, ux_clbm, uy_clbm = macroscopic_fields_from_state(phiT_clbm[:, nt], nx, ny, e_value)
 
-        ref_vec = vcat(vec(ux_ref), vec(uy_ref))
         err_vec = vcat(vec(ux_clbm - ux_ref), vec(uy_clbm - uy_ref))
         abs_err[nt] = norm(err_vec)
-        rel_err[nt] = abs_err[nt] / max(norm(ref_vec), eps(Float64))
     end
 
-    return abs_err, rel_err
+    return abs_err
+end
+
+function build_tg2d_diagnostics(phiT_ref, phiT_clbm, nx, ny, e_value)
+    ngrid_local = nx * ny
+    n_time_local = size(phiT_ref, 2)
+    rho_ref_field, u_ref_field = per_site_macroscopic(phiT_ref, Q, ngrid_local, e_value)
+    rho_clbm_field, u_clbm_field = per_site_macroscopic(phiT_clbm, Q, ngrid_local, e_value)
+
+    rho_ref_mean = vec(mean(rho_ref_field, dims=1))
+    rho_clbm_mean = vec(mean(rho_clbm_field, dims=1))
+    u_ref_rms = vec([sqrt(mean(u_ref_field[:, nt].^2)) for nt = 1:n_time_local])
+    u_clbm_rms = vec([sqrt(mean(u_clbm_field[:, nt].^2)) for nt = 1:n_time_local])
+
+    avg_phi_ref = domain_average_distribution_history(phiT_ref, Q, ngrid_local)
+    avg_phi_clbm = domain_average_distribution_history(phiT_clbm, Q, ngrid_local)
+    avg_phi_abs_err = abs.(avg_phi_clbm .- avg_phi_ref)
+
+    dist_abs_err = abs.(phiT_clbm .- phiT_ref)
+    profile_abs_max = vec(maximum(dist_abs_err, dims=1))
+    profile_abs_l2 = vec([norm(dist_abs_err[:, nt]) for nt = 1:n_time_local])
+    density_error_norm = density_error_history(phiT_ref, phiT_clbm, nx, ny, e_value)
+    velocity_error_norm = velocity_error_history(phiT_ref, phiT_clbm, nx, ny, e_value)
+
+    return (
+        rho_ref_mean=rho_ref_mean,
+        rho_clbm_mean=rho_clbm_mean,
+        rho_mean_abs_err=abs.(rho_clbm_mean .- rho_ref_mean),
+        u_ref_rms=u_ref_rms,
+        u_clbm_rms=u_clbm_rms,
+        u_rms_abs_err=abs.(u_clbm_rms .- u_ref_rms),
+        density_error_norm=density_error_norm,
+        velocity_error_norm=velocity_error_norm,
+        profile_abs_max=profile_abs_max,
+        profile_abs_l2=profile_abs_l2,
+        avg_phi_ref=avg_phi_ref,
+        avg_phi_clbm=avg_phi_clbm,
+        avg_phi_abs_err=avg_phi_abs_err,
+    )
+end
+
+function write_tg2d_snapshot_h5(filename, phi_ref, phi_clbm, nx, ny, e_value; time_step, time_value)
+    rho_ref, ux_ref, uy_ref = macroscopic_fields_from_state(phi_ref, nx, ny, e_value)
+    rho_clbm, ux_clbm, uy_clbm = macroscopic_fields_from_state(phi_clbm, nx, ny, e_value)
+    umag_ref = sqrt.(ux_ref .^ 2 .+ uy_ref .^ 2)
+    umag_clbm = sqrt.(ux_clbm .^ 2 .+ uy_clbm .^ 2)
+
+    h5open(filename, "w") do file
+        write(file, "time_step", time_step)
+        write(file, "t", time_value)
+        write(file, "phi_ref", reshape(phi_ref, Q, nx, ny))
+        write(file, "phi_clbe", reshape(phi_clbm, Q, nx, ny))
+        write(file, "abs_err_phi", reshape(abs.(phi_clbm .- phi_ref), Q, nx, ny))
+        write(file, "rho_ref", rho_ref)
+        write(file, "rho_clbe", rho_clbm)
+        write(file, "abs_err_rho", abs.(rho_clbm .- rho_ref))
+        write(file, "ux_ref", ux_ref)
+        write(file, "uy_ref", uy_ref)
+        write(file, "ux_clbe", ux_clbm)
+        write(file, "uy_clbe", uy_clbm)
+        write(file, "abs_err_ux", abs.(ux_clbm .- ux_ref))
+        write(file, "abs_err_uy", abs.(uy_clbm .- uy_ref))
+        write(file, "u_mag_ref", umag_ref)
+        write(file, "u_mag_clbe", umag_clbm)
+        write(file, "abs_err_u_mag", abs.(umag_clbm .- umag_ref))
+    end
+end
+
+function save_tg2d_comparison_hdf5(result; output_dir="data/tg2d_clbe_comparison", snapshot_every=0)
+    mkpath(output_dir)
+    diagnostics = result.diagnostics
+    snapshot_paths = String[]
+    effective_snapshot_every = snapshot_every <= 0 ? max(1, result.local_n_time - 1) : snapshot_every
+    snapshot_indices = sort(unique(vcat(1, collect(1:effective_snapshot_every:result.local_n_time), result.local_n_time)))
+
+    for nt in snapshot_indices
+        filename = joinpath(output_dir, "var" * @sprintf("%08d", nt - 1) * ".h5")
+        write_tg2d_snapshot_h5(
+            filename,
+            result.phiT_ref[:, nt],
+            result.phiT_clbm[:, nt],
+            result.nx,
+            result.ny,
+            result.e_value;
+            time_step=nt - 1,
+            time_value=dt * (nt - 1),
+        )
+        push!(snapshot_paths, filename)
+    end
+
+    fn_ts = joinpath(output_dir, "time_series.h5")
+    h5open(fn_ts, "w") do file
+        write(file, "t", dt .* collect(0:result.local_n_time - 1))
+        write(file, "density_ref_mean", diagnostics.rho_ref_mean)
+        write(file, "density_clbe_mean", diagnostics.rho_clbm_mean)
+        write(file, "density_mean_abs_err", diagnostics.rho_mean_abs_err)
+        write(file, "velocity_ref_rms", diagnostics.u_ref_rms)
+        write(file, "velocity_clbe_rms", diagnostics.u_clbm_rms)
+        write(file, "velocity_rms_abs_err", diagnostics.u_rms_abs_err)
+        write(file, "density_error_norm", diagnostics.density_error_norm)
+        write(file, "velocity_error_norm", diagnostics.velocity_error_norm)
+        write(file, "profile_abs_max", diagnostics.profile_abs_max)
+        write(file, "profile_abs_l2", diagnostics.profile_abs_l2)
+        write(file, "avg_phi_ref", diagnostics.avg_phi_ref)
+        write(file, "avg_phi_clbe", diagnostics.avg_phi_clbm)
+        write(file, "avg_phi_abs_err", diagnostics.avg_phi_abs_err)
+        write(file, "case_label", result.case_label)
+        write(file, "reference_model", String(result.reference_model))
+        write(file, "nx", result.nx)
+        write(file, "ny", result.ny)
+        write(file, "truncation_order", result.local_truncation_order)
+        write(file, "rho_value", result.rho_value)
+        write(file, "amplitude", result.amplitude)
+    end
+
+    return (
+        output_dir=output_dir,
+        time_series_path=fn_ts,
+        snapshot_paths=snapshot_paths,
+    )
 end
 
 function plot_tg2d_comparison(phiT_ref, phiT_clbm, nx, ny, e_value, local_n_time, truncation_order; case_label="2D TG periodic test")
@@ -259,7 +421,7 @@ function plot_tg2d_comparison(phiT_ref, phiT_clbm, nx, ny, e_value, local_n_time
     _, ux_clbm, uy_clbm = macroscopic_fields_from_state(phiT_clbm[:, end], nx, ny, e_value)
     ux_err = ux_clbm - ux_ref
     uy_err = uy_clbm - uy_ref
-    abs_err, rel_err = velocity_error_history(phiT_ref, phiT_clbm, nx, ny, e_value)
+    abs_err = velocity_error_history(phiT_ref, phiT_clbm, nx, ny, e_value)
 
     close("all")
     figure(figsize=(14, 8))
@@ -291,10 +453,8 @@ function plot_tg2d_comparison(phiT_ref, phiT_clbm, nx, ny, e_value, local_n_time
 
     subplot(2, 3, 6)
     semilogy(1:local_n_time, abs_err, "-b", linewidth=1.8, label="absolute")
-    semilogy(1:local_n_time, rel_err, "--g", linewidth=1.8, label="relative")
     xlabel("Time step")
     ylabel("Velocity error norm")
-    legend(loc="best")
     title("Velocity error history")
 
     suptitle("$case_label, grid = $(nx)×$(ny), k = $truncation_order")
@@ -578,8 +738,7 @@ function run_tg2d_clbe_comparison(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001
     )
 
     dist_abs_err = abs.(phiT_clbm .- phiT_ref)
-    dist_rel_err = dist_abs_err ./ max.(abs.(phiT_ref), eps(Float64))
-    vel_abs_err, vel_rel_err = velocity_error_history(phiT_ref, phiT_clbm, nx, ny, e_value)
+    diagnostics = build_tg2d_diagnostics(phiT_ref, phiT_clbm, nx, ny, e_value)
 
     return (
         case_label=case_label,
@@ -589,9 +748,9 @@ function run_tg2d_clbe_comparison(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001
         phiT_clbm=phiT_clbm,
         VT=VT,
         dist_abs_err=dist_abs_err,
-        dist_rel_err=dist_rel_err,
-        vel_abs_err=vel_abs_err,
-        vel_rel_err=vel_rel_err,
+        density_error_norm=diagnostics.density_error_norm,
+        vel_abs_err=diagnostics.velocity_error_norm,
+        diagnostics=diagnostics,
         e_value=e_value,
         setup=setup,
         S_lbm=S_lbm,
@@ -601,10 +760,11 @@ function run_tg2d_clbe_comparison(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001
         local_truncation_order=local_truncation_order,
         rho_value=rho_value,
         amplitude=amplitude,
+        saved_paths=nothing,
     )
 end
 
-function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001, local_n_time=n_time, l_plot=false, boundary_setup=false, coeff_method=coeff_generation_method, local_truncation_order=truncation_order, reference_model=:direct_lbe)
+function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001, local_n_time=n_time, l_plot=false, boundary_setup=false, coeff_method=coeff_generation_method, local_truncation_order=truncation_order, reference_model=:direct_lbe, save_output=false, output_dir="data/tg2d_clbe_comparison", snapshot_every=0)
     result = run_tg2d_clbe_comparison(
         nx=nx,
         ny=ny,
@@ -617,13 +777,17 @@ function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001, local_n_time=n_tim
         reference_model=reference_model,
     )
 
+    if save_output
+        saved_paths = save_tg2d_comparison_hdf5(result; output_dir=output_dir, snapshot_every=snapshot_every)
+        result = merge(result, (saved_paths=saved_paths,))
+    end
+
     phiT_lbe = result.phiT_ref
     phiT_clbm = result.phiT_clbm
     VT = result.VT
     dist_abs_err = result.dist_abs_err
-    dist_rel_err = result.dist_rel_err
+    density_error_norm = result.density_error_norm
     vel_abs_err = result.vel_abs_err
-    vel_rel_err = result.vel_rel_err
     case_label = result.case_label
 
     println("Running $(case_label) CLBE comparison")
@@ -633,13 +797,16 @@ function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001, local_n_time=n_tim
     println("  n_time = $local_n_time")
     println("  reference_model = $(reference_model)")
     println("Max distribution absolute difference = ", maximum(dist_abs_err))
-    println("Max distribution relative difference = ", maximum(dist_rel_err))
+    println("Max density error norm = ", maximum(density_error_norm))
     println("Max velocity absolute error norm = ", maximum(vel_abs_err))
-    println("Max velocity relative error norm = ", maximum(vel_rel_err))
+    if save_output
+        println("Saved HDF5 outputs to ", result.saved_paths.output_dir)
+        println("Saved time series to ", result.saved_paths.time_series_path)
+    end
 
     if l_plot
         plot_tg2d_comparison(phiT_lbe, phiT_clbm, nx, ny, result.e_value, local_n_time, truncation_order; case_label=case_label)
     end
 
-    return phiT_lbe, phiT_clbm, VT, dist_abs_err, dist_rel_err, vel_abs_err, vel_rel_err
+    return phiT_lbe, phiT_clbm, VT, dist_abs_err, density_error_norm, vel_abs_err
 end
