@@ -25,7 +25,7 @@ Inside Julia, the three most common entry points are:
 ```julia
 include("src/CLBE/clbe_multigrid_run.jl")
 main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, l_plot=true,
-     coeff_method=:numerical, initial_condition=:legacy)
+     coeff_method=:numerical, initial_condition=:legacy, dt_override=0.05)
 ```
 
 Runs the primary D1Q3 CLBE driver through the legacy-compatible `main(...)` wrapper. For `ngrid = 1`, it preserves the historical single-point collision test. For `ngrid >= 3`, it runs the multigrid collision+streaming comparison workflow. Internally, the driver now builds explicit configuration objects before preparing the runtime state.
@@ -43,6 +43,7 @@ core_cfg, case_cfg = build_d1q3_multigrid_configs(
     coeff_method=:numerical,
     initial_condition=:sinusoidal,
     u_ini=0.1,
+    dt_override=0.05,
 )
 
 run_d1q3_multigrid(case_cfg, core_cfg; l_plot=true)
@@ -106,7 +107,7 @@ To run the standard CLBE script:
 ```julia
 include("src/CLBE/clbe_multigrid_run.jl")
 main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, l_plot=true,
-     coeff_method=:numerical, initial_condition=:legacy)
+     coeff_method=:numerical, initial_condition=:legacy, dt_override=0.05)
 ```
 
 This uses the defaults defined in [src/CLBE/clbe_config.jl](src/CLBE/clbe_config.jl), but the D1Q3 driver no longer relies on silently scattering multigrid-specific overrides throughout the file. Instead, it constructs explicit run configurations and then prepares the runtime state from them.
@@ -124,7 +125,8 @@ The D1Q3 code path is now organized into three layers:
 - [src/CLBE/clbe_multigrid_run.jl](src/CLBE/clbe_multigrid_run.jl)
   - acts as the D1Q3 driver/test-case layer,
   - provides `run_d1q3_multigrid(case_cfg, core_cfg; l_plot=...)`,
-  - preserves `main(...)` as a thin compatibility wrapper for quick interactive use.
+  - preserves `main(...)` as a thin compatibility wrapper for quick interactive use,
+  - accepts `dt_override=...` if you want to set the D1Q3 time step explicitly.
 
 - Core numerical files such as [src/CLBE/timeMarching.jl](src/CLBE/timeMarching.jl), [src/CLBE/carleman_transferA.jl](src/CLBE/carleman_transferA.jl), and [src/LBE/direct_LBE.jl](src/LBE/direct_LBE.jl)
   - remain the dynamical core used by the driver.
@@ -144,6 +146,7 @@ core_cfg, case_cfg = build_d1q3_multigrid_configs(
     coeff_method=:numerical,
     initial_condition=:sinusoidal,
     u_ini=0.1,
+    dt_override=0.05,
 )
 
 run_d1q3_multigrid(case_cfg, core_cfg; l_plot=true)
@@ -155,8 +158,16 @@ The legacy-compatible wrapper remains available:
 include("src/CLBE/clbe_multigrid_run.jl")
 main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100,
      local_truncation_order=4, coeff_method=:numerical,
-     initial_condition=:sinusoidal, u_ini=0.1, l_plot=true)
+     initial_condition=:sinusoidal, u_ini=0.1, dt_override=0.05, l_plot=true)
 ```
+
+If you do not pass `dt_override`, the D1Q3 multigrid workflow uses the current default stability convention
+
+```julia
+dt = tau_value / 10
+```
+
+rather than the legacy global default `dt = 1.0`.
 
 ### D1Q3 initial-condition options
 
@@ -188,7 +199,7 @@ Use `u_ini=...` to set the sinusoidal amplitude. For example, to run the sinusoi
 include("src/CLBE/clbe_multigrid_run.jl")
 main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100,
      l_plot=true, coeff_method=:numerical,
-     initial_condition=:sinusoidal, u_ini=0.1)
+     initial_condition=:sinusoidal, u_ini=0.1, dt_override=0.05)
 ```
 
 To reproduce the original repository behavior explicitly:
@@ -197,7 +208,7 @@ To reproduce the original repository behavior explicitly:
 include("src/CLBE/clbe_multigrid_run.jl")
 main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100,
      l_plot=true, coeff_method=:numerical,
-     initial_condition=:legacy)
+     initial_condition=:legacy, dt_override=0.05)
 ```
 
 ### Carleman coefficient-generation mode
@@ -225,6 +236,7 @@ Important:
 - [src/CLBE/clbe_multigrid_run.jl](src/CLBE/clbe_multigrid_run.jl), [src/CLBE/plot_multigrid_domain_average.jl](src/CLBE/plot_multigrid_domain_average.jl), and [src/CLBE/plot_truncation_order_error_comparison.jl](src/CLBE/plot_truncation_order_error_comparison.jl) no longer auto-run on `include(...)`.
 - After including them, explicitly call `main(...)` with the parameters you want.
 - If you want more explicit control than `main(...)`, use `build_d1q3_multigrid_configs(...)` plus `run_d1q3_multigrid(...)`.
+- For D1Q3 runs, you can set the time step either through `main(..., dt_override=...)` or through `build_d1q3_multigrid_configs(..., dt_override=...)`.
 
 The legacy entry point [src/CLBE/clbe_run.jl](src/CLBE/clbe_run.jl) is retained as a thin compatibility wrapper that simply includes [src/CLBE/clbe_multigrid_run.jl](src/CLBE/clbe_multigrid_run.jl).
 
@@ -370,7 +382,7 @@ Run it from Julia with:
 ```julia
 include("src/CLBE/plot_multigrid_domain_average.jl")
 main(local_n_time=100, comparison_ngrid=6, local_truncation_order=3,
-     coeff_method=:numerical, initial_condition=:legacy)
+     coeff_method=:numerical, initial_condition=:legacy, dt_override=0.05)
 ```
 
 Parameter mapping for this script:
@@ -380,7 +392,8 @@ Parameter mapping for this script:
 - `local_n_time` sets the number of time steps,
 - `coeff_method` selects Carleman coefficient generation, with `:numerical` as the default,
 - `initial_condition` selects `:legacy` or `:sinusoidal`,
-- `u_ini` sets the sinusoidal amplitude when `initial_condition=:sinusoidal`.
+- `u_ini` sets the sinusoidal amplitude when `initial_condition=:sinusoidal`,
+- `dt_override` sets an explicit D1Q3 time step.
 
 For example, the call above runs the `D1Q3`, `ngrid = 6`, `k = 3`, `nt = 100` case with the original/legacy initial condition.
 
@@ -389,7 +402,7 @@ To run the sinusoidal initial condition instead:
 ```julia
 include("src/CLBE/plot_multigrid_domain_average.jl")
 main(local_n_time=100, comparison_ngrid=6, local_truncation_order=3,
-     coeff_method=:numerical, initial_condition=:sinusoidal, u_ini=0.1)
+     coeff_method=:numerical, initial_condition=:sinusoidal, u_ini=0.1, dt_override=0.05)
 ```
 
 This script does the following:
@@ -430,7 +443,7 @@ Run the default comparison from Julia with:
 ```julia
 include("src/CLBE/plot_truncation_order_error_comparison.jl")
 main(k_values=[3, 4], comparison_ngrid=6, local_n_time=100,
-     coeff_method=:numerical, initial_condition=:legacy)
+     coeff_method=:numerical, initial_condition=:legacy, dt_override=0.05)
 ```
 
 By default, this script:
@@ -449,7 +462,7 @@ You can also rerun the comparison with different parameters from Julia without e
 ```julia
 include("src/CLBE/plot_truncation_order_error_comparison.jl")
 main(k_values=[3, 4], comparison_ngrid=3, local_n_time=40,
-     coeff_method=:numerical, initial_condition=:sinusoidal, u_ini=0.1)
+     coeff_method=:numerical, initial_condition=:sinusoidal, u_ini=0.1, dt_override=0.05)
 ```
 
 Useful variations include:
@@ -459,6 +472,7 @@ Useful variations include:
 - changing `comparison_ngrid` if you want to test a different n-point setup,
 - switching between `initial_condition=:legacy` and `initial_condition=:sinusoidal`,
 - changing `u_ini` to vary the sinusoidal amplitude,
+- changing `dt_override` to control the D1Q3 time step explicitly,
 - switching to `coeff_method=:symbolic` if you want symbolic Carleman coefficient generation.
 
 Interpretation notes:
