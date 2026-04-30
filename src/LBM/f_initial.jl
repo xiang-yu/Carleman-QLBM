@@ -26,7 +26,7 @@ function d1q3_state_from_velocity(u)
     return f_ini_test(u)
 end
 
-"""
+raw"""
     d1q3_initial_condition_from_velocity_profile(velocity_profile)
 
 Concatenate sitewise D1Q3 states into the interleaved multigrid state
@@ -39,7 +39,7 @@ function d1q3_initial_condition_from_velocity_profile(velocity_profile)
     return reduce(vcat, (d1q3_state_from_velocity(u) for u in velocity_profile))
 end
 
-"""
+raw"""
     d1q3_sinusoidal_velocity_profile(nx; u_ini=0.1)
 
 Return the paper-style sinusoidal D1Q3 velocity profile
@@ -77,7 +77,7 @@ function d1q3_legacy_velocity_profile(nx)
     return collect(range(0.12, -0.08, length=nx))
 end
 
-"""
+raw"""
     d1q3_multigrid_initial_condition(nx; initial_condition=:legacy, u_ini=0.1)
 
 Select the D1Q3 multigrid initial condition.

@@ -11,7 +11,7 @@ include("plot_multigrid_domain_average.jl")
     main(; k_values=[3, 4], comparison_ngrid=3, local_n_time=100, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1)
 
 Compare D1Q3 truncation-order behavior by reusing the multigrid
-CLBM/LBM comparison workflow for each requested truncation order.
+CLBE/LBM comparison workflow for each requested truncation order.
 
 Arguments:
     k_values: Array of Carleman truncation orders to compare (e.g., [3, 4])

@@ -1,8 +1,16 @@
 # Carleman-QLBM
 
-This repository contains Julia scripts for testing Carleman-linearized lattice Boltzmann models (CLBM) against reference lattice Boltzmann evolutions.
+This repository contains Julia scripts for testing Carleman-linearized lattice Boltzmann models (CLBE) against reference lattice Boltzmann evolutions.
 
 This README was prepared with assistance from GPT-5.4.
+
+## Repository layout
+
+The Julia source is organized into three sibling directories under `src/`:
+
+- [`src/LBM/`](src/LBM/) — the discrete lattice Boltzmann method: exact lattice-shift streaming and collision in integer lattice-time iterations.
+- [`src/LBE/`](src/LBE/) — the direct semi-discrete n-point lattice Boltzmann equation: the continuous-in-time ODE that CLBE linearizes. Primary apples-to-apples reference for CLBE.
+- [`src/CLBE/`](src/CLBE/) — the Carleman-linearized LBE: the lifted system and the sparse/dense time-marching that evolves it.
 
 ## Quick Start
 
@@ -15,23 +23,23 @@ julia --project=.
 Inside Julia, the three most common entry points are:
 
 ```julia
-include("src/CLBM/clbm_multigrid_run.jl")
+include("src/CLBE/clbe_multigrid_run.jl")
 main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, l_plot=true,
      coeff_method=:numerical, initial_condition=:legacy)
 ```
 
-Runs the primary CLBM driver. For `ngrid = 1`, it preserves the legacy single-point collision test. For `ngrid >= 3`, it runs the multigrid collision+streaming comparison workflow.
+Runs the primary CLBE driver. For `ngrid = 1`, it preserves the legacy single-point collision test. For `ngrid >= 3`, it runs the multigrid collision+streaming comparison workflow.
 
 ```julia
-include("src/CLBM/plot_multigrid_domain_average.jl")
+include("src/CLBE/plot_multigrid_domain_average.jl")
 main(local_n_time=100, comparison_ngrid=6, local_truncation_order=3,
      coeff_method=:numerical, initial_condition=:legacy)
 ```
 
-Plots the multi-grid domain-averaged `f_1`, `f_2`, `f_3` comparison between `CLBM` and the centered finite-difference `LBM`, plus absolute and relative errors.
+Plots the multi-grid domain-averaged `f_1`, `f_2`, `f_3` comparison between `CLBE` and the centered finite-difference `LBM`, plus absolute and relative errors.
 
 ```julia
-include("src/CLBM/plot_truncation_order_error_comparison.jl")
+include("src/CLBE/plot_truncation_order_error_comparison.jl")
 main(k_values=[3, 4], comparison_ngrid=6, local_n_time=100,
      coeff_method=:numerical, initial_condition=:legacy)
 ```
@@ -39,7 +47,7 @@ main(k_values=[3, 4], comparison_ngrid=6, local_n_time=100,
 Plots the domain-averaged absolute and relative error histories for multiple truncation orders `k`.
 
 ```bash
-julia --project=. src/CLBM/unit_tests_minimal.jl
+julia --project=. src/CLBE/unit_tests_minimal.jl
 ```
 
 Runs the minimal regression tests for the corrected multi-grid implementation.
@@ -73,17 +81,17 @@ using Pkg
 Pkg.instantiate()
 ```
 
-## Main CLBM run
+## Main CLBE run
 
-To run the standard CLBM script:
+To run the standard CLBE script:
 
 ```julia
-include("src/CLBM/clbm_multigrid_run.jl")
+include("src/CLBE/clbe_multigrid_run.jl")
 main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, l_plot=true,
      coeff_method=:numerical, initial_condition=:legacy)
 ```
 
-This uses the configuration in [src/CLBM/clbm_config.jl](src/CLBM/clbm_config.jl).
+This uses the configuration in [src/CLBE/clbe_config.jl](src/CLBE/clbe_config.jl).
 
 ### D1Q3 initial-condition options
 
@@ -112,7 +120,7 @@ The original repository / legacy D1Q3 initial condition means:
 Use `u_ini=...` to set the sinusoidal amplitude. For example, to run the sinusoidal initial condition:
 
 ```julia
-include("src/CLBM/clbm_multigrid_run.jl")
+include("src/CLBE/clbe_multigrid_run.jl")
 main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100,
      l_plot=true, coeff_method=:numerical,
      initial_condition=:sinusoidal, u_ini=0.1)
@@ -121,7 +129,7 @@ main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100,
 To reproduce the original repository behavior explicitly:
 
 ```julia
-include("src/CLBM/clbm_multigrid_run.jl")
+include("src/CLBE/clbe_multigrid_run.jl")
 main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100,
      l_plot=true, coeff_method=:numerical,
      initial_condition=:legacy)
@@ -129,12 +137,12 @@ main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100,
 
 ### Carleman coefficient-generation mode
 
-The CLBM drivers support two Carleman coefficient-generation modes:
+The CLBE drivers support two Carleman coefficient-generation modes:
 
 - `:numerical` — the default and recommended option for routine runs
 - `:symbolic` — an optional alternative when you explicitly want symbolic coefficient generation
 
-The repository default in [src/CLBM/clbm_config.jl](src/CLBM/clbm_config.jl) is now:
+The repository default in [src/CLBE/clbe_config.jl](src/CLBE/clbe_config.jl) is now:
 
 ```julia
 global coeff_generation_method = :numerical
@@ -143,34 +151,34 @@ global coeff_generation_method = :numerical
 You can still override this at run time by passing `coeff_method` into the driver you call. For example:
 
 ```julia
-include("src/CLBM/clbm_multigrid_run.jl")
+include("src/CLBE/clbe_multigrid_run.jl")
 main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, coeff_method=:symbolic)
 ```
 
 Important:
 
-- [src/CLBM/clbm_multigrid_run.jl](src/CLBM/clbm_multigrid_run.jl), [src/CLBM/plot_multigrid_domain_average.jl](src/CLBM/plot_multigrid_domain_average.jl), and [src/CLBM/plot_truncation_order_error_comparison.jl](src/CLBM/plot_truncation_order_error_comparison.jl) no longer auto-run on `include(...)`.
+- [src/CLBE/clbe_multigrid_run.jl](src/CLBE/clbe_multigrid_run.jl), [src/CLBE/plot_multigrid_domain_average.jl](src/CLBE/plot_multigrid_domain_average.jl), and [src/CLBE/plot_truncation_order_error_comparison.jl](src/CLBE/plot_truncation_order_error_comparison.jl) no longer auto-run on `include(...)`.
 - After including them, explicitly call `main(...)` with the parameters you want.
 
-The legacy entry point [src/CLBM/clbm_run.jl](src/CLBM/clbm_run.jl) is retained as a thin compatibility wrapper that simply includes [src/CLBM/clbm_multigrid_run.jl](src/CLBM/clbm_multigrid_run.jl).
+The legacy entry point [src/CLBE/clbe_run.jl](src/CLBE/clbe_run.jl) is retained as a thin compatibility wrapper that simply includes [src/CLBE/clbe_multigrid_run.jl](src/CLBE/clbe_multigrid_run.jl).
 
 ## Important note on the multi-grid comparison
 
-There are two different notions of “LBM streaming” in this repository:
+There are two different notions of "LBM streaming" in this repository:
 
 - The classical lattice update in [src/LBM/streaming.jl](src/LBM/streaming.jl) uses exact lattice shifts.
-- The multi-grid CLBM validation added here uses the semi-discrete n-point LBE with centered finite-difference streaming, implemented through [src/CLBM/streaming_Carleman.jl](src/CLBM/streaming_Carleman.jl).
+- The multi-grid CLBE validation added here uses the semi-discrete n-point LBE with centered finite-difference streaming, implemented through [src/CLBE/streaming_Carleman.jl](src/CLBE/streaming_Carleman.jl).
 
-The multi-grid CLBM tests and plots below compare CLBM against the centered finite-difference n-point LBE, because that is the discretization used by the current multi-grid Carleman operator.
+The multi-grid CLBE tests and plots below compare CLBE against the centered finite-difference n-point LBE, because that is the discretization used by the current multi-grid Carleman operator.
 
-## Multi-grid CLBM vs LBM tests
+## Multi-grid CLBE vs LBM tests
 
-The main regression file is [src/CLBM/unit_tests_minimal.jl](src/CLBM/unit_tests_minimal.jl).
+The main regression file is [src/CLBE/unit_tests_minimal.jl](src/CLBE/unit_tests_minimal.jl).
 
 Run it from the repository root:
 
 ```bash
-julia --project=. src/CLBM/unit_tests_minimal.jl
+julia --project=. src/CLBE/unit_tests_minimal.jl
 ```
 
 This file contains the following relevant checks.
@@ -182,13 +190,13 @@ This test verifies the corrected multi-grid collision and streaming implementati
 It checks that:
 
 - the n-point collision operator reduces to the single-point collision law on a uniform field,
-- the multi-grid CLBM evolution matches the corresponding reference evolution,
+- the multi-grid CLBE evolution matches the corresponding reference evolution,
 - the populations remain non-negative.
 
 The expected success message is:
 
 ```text
-✅ ngrid=2 periodic CLBM matches LBM
+✅ ngrid=2 periodic CLBE matches LBM
 ```
 
 ### 2. `ngrid = 3` nonuniform streaming + collision regression
@@ -205,13 +213,13 @@ phi_ini = vcat(
 )
 ```
 
-It verifies that the first CLBM level matches the direct semi-discrete n-point LBE right-hand side:
+It verifies that the first CLBE level matches the direct semi-discrete n-point LBE right-hand side:
 
 $$
 \partial_t \phi = -S\phi + F_1\phi + F_2\phi^{[2]} + F_3\phi^{[3]}.
 $$
 
-It also checks that one explicit Euler update from the direct n-point LBE matches the first-level CLBM update.
+It also checks that one explicit Euler update from the direct n-point LBE matches the first-level CLBE update.
 
 The expected success message is:
 
@@ -219,16 +227,16 @@ The expected success message is:
 ✅ ngrid=3 nonuniform centered-difference streaming + collision matches direct n-point LBE
 ```
 
-## Experimental D2Q9 CLBM status
+## Experimental D2Q9 CLBE status
 
-The D2Q9 CLBM path is currently **experimental**. The active driver is [src/CLBM/clbm_tg2d_run.jl](src/CLBM/clbm_tg2d_run.jl).
+The D2Q9 CLBE path is currently **experimental**. The active driver is [src/CLBE/clbe_tg2d_run.jl](src/CLBE/clbe_tg2d_run.jl).
 
 Important implementation notes for this path:
 
-- `poly_order` is taken from [src/CLBM/clbm_config.jl](src/CLBM/clbm_config.jl),
+- `poly_order` is taken from [src/CLBE/clbe_config.jl](src/CLBE/clbe_config.jl),
 - `local_truncation_order` is a runtime input argument,
 - the driver now enforces `local_truncation_order >= poly_order`,
-- the sparse time-marching path in [src/CLBM/timeMarching.jl](src/CLBM/timeMarching.jl) now avoids building the lifted streaming operator through a dense intermediate matrix.
+- the sparse time-marching path in [src/CLBE/timeMarching.jl](src/CLBE/timeMarching.jl) now avoids building the lifted streaming operator through a dense intermediate matrix.
 
 ### Current minimal benchmark
 
@@ -243,12 +251,12 @@ The current debug benchmark is the periodic D2Q9 Taylor–Green case
 A representative run from the repository root is:
 
 ```bash
-julia --project=. -e 'ENV["QCFD_SRC"]=pwd()*"/src/"; ENV["QCFD_HOME"]=pwd(); include("src/CLBM/clbm_tg2d_run.jl"); main(nx=3, ny=3, amplitude=0.02, rho_value=1.0, local_n_time=3, l_plot=false, boundary_setup=false, coeff_method=:numerical, local_truncation_order=3)'
+julia --project=. -e 'ENV["QCFD_SRC"]=pwd()*"/src/"; ENV["QCFD_HOME"]=pwd(); include("src/CLBE/clbe_tg2d_run.jl"); main(nx=3, ny=3, amplitude=0.02, rho_value=1.0, local_n_time=3, l_plot=false, boundary_setup=false, coeff_method=:numerical, local_truncation_order=3)'
 ```
 
 ### Current Carleman size and cost
 
-For the `3 × 3`, `k = 3` D2Q9 test, the lifted CLBM state has
+For the `3 × 3`, `k = 3` D2Q9 test, the lifted CLBE state has
 
 - `VT size = (538083, 3)` for the short `nt = 3` run.
 
@@ -272,29 +280,29 @@ Max velocity relative error norm = 155.89166394701334
 
 So the current status is:
 
-- the minimal D2Q9 CLBM case now runs to completion,
+- the minimal D2Q9 CLBE case now runs to completion,
 - the sparse assembly bottleneck has been reduced enough for the short debug case,
-- the CLBM solution is **not yet quantitatively matching** the reference D2Q9 LBM.
+- the CLBE solution is **not yet quantitatively matching** the reference D2Q9 LBM.
 
 ### What to do next
 
 Before trying larger D2Q9 runs, the next work should focus on **model/operator accuracy**:
 
-1. compare the first CLBM update against the direct semi-discrete D2Q9 n-point LBE right-hand side,
+1. compare the first CLBE update against the direct semi-discrete D2Q9 n-point LBE right-hand side,
 2. isolate whether the remaining discrepancy comes from the collision lift, the streaming lift, or the lifted-state layout,
 3. add a D2Q9 operator-level regression test analogous to the existing D1Q3 multigrid RHS/update checks,
 4. only after that, extend the D2Q9 benchmark to larger grids or longer times.
 
-Until those checks are completed, treat the D2Q9 CLBM driver as a development/debugging path rather than a validated production workflow.
+Until those checks are completed, treat the D2Q9 CLBE driver as a development/debugging path rather than a validated production workflow.
 
 ## Plotting the multi-grid domain-averaged comparison
 
-The plotting script is [src/CLBM/plot_multigrid_domain_average.jl](src/CLBM/plot_multigrid_domain_average.jl).
+The plotting script is [src/CLBE/plot_multigrid_domain_average.jl](src/CLBE/plot_multigrid_domain_average.jl).
 
 Run it from Julia with:
 
 ```julia
-include("src/CLBM/plot_multigrid_domain_average.jl")
+include("src/CLBE/plot_multigrid_domain_average.jl")
 main(local_n_time=100, comparison_ngrid=6, local_truncation_order=3,
      coeff_method=:numerical, initial_condition=:legacy)
 ```
@@ -313,7 +321,7 @@ For example, the call above runs the `D1Q3`, `ngrid = 6`, `k = 3`, `nt = 100` ca
 To run the sinusoidal initial condition instead:
 
 ```julia
-include("src/CLBM/plot_multigrid_domain_average.jl")
+include("src/CLBE/plot_multigrid_domain_average.jl")
 main(local_n_time=100, comparison_ngrid=6, local_truncation_order=3,
      coeff_method=:numerical, initial_condition=:sinusoidal, u_ini=0.1)
 ```
@@ -323,12 +331,12 @@ This script does the following:
 - sets `ngrid = 3`,
 - uses the selected D1Q3 initial condition (`:legacy` or `:sinusoidal`),
 - evolves the direct centered finite-difference n-point LBE,
-- evolves the CLBM with the same centered-difference streaming operator,
+- evolves the CLBE with the same centered-difference streaming operator,
 - computes domain averages for `f_1`, `f_2`, and `f_3`,
 - plots:
-	- top row: `⟨f_m⟩` for `LBM` and `CLBM`,
-	- middle row: `|f_m^CLBM - f_m^LBM|`,
-	- bottom row: `|f_m^CLBM - f_m^LBM| / f_m^LBM`.
+	- top row: `⟨f_m⟩` for `LBM` and `CLBE`,
+	- middle row: `|f_m^CLBE - f_m^LBM|`,
+	- bottom row: `|f_m^CLBE - f_m^LBM| / f_m^LBM`.
 
 If `output_basename` is omitted, the output PDF name is generated automatically and includes the model and key parameters, for example:
 
@@ -349,12 +357,12 @@ This is a multi-step nonuniform test, so the difference is no longer exactly mac
 
 ## Comparing errors for different truncation orders
 
-The truncation-order comparison script is [src/CLBM/plot_truncation_order_error_comparison.jl](src/CLBM/plot_truncation_order_error_comparison.jl).
+The truncation-order comparison script is [src/CLBE/plot_truncation_order_error_comparison.jl](src/CLBE/plot_truncation_order_error_comparison.jl).
 
 Run the default comparison from Julia with:
 
 ```julia
-include("src/CLBM/plot_truncation_order_error_comparison.jl")
+include("src/CLBE/plot_truncation_order_error_comparison.jl")
 main(k_values=[3, 4], comparison_ngrid=6, local_n_time=100,
      coeff_method=:numerical, initial_condition=:legacy)
 ```
@@ -363,7 +371,7 @@ By default, this script:
 
 - uses the selected D1Q3 initial condition for each compared truncation order,
 - compares truncation orders `k = 3` and `k = 4`,
-- reuses the same multigrid CLBM/LBM comparison workflow used by `plot_multigrid_domain_average.jl` for each requested `k`,
+- reuses the same multigrid CLBE/LBM comparison workflow used by `plot_multigrid_domain_average.jl` for each requested `k`,
 - plots the domain-averaged absolute and relative errors for `f_1`, `f_2`, and `f_3`.
 
 The script saves the PDF automatically to the figures directory. By default, if `QCFD_QCLBM_FIG_DIR` is not set, it uses:
@@ -373,7 +381,7 @@ The script saves the PDF automatically to the figures directory. By default, if 
 You can also rerun the comparison with different parameters from Julia without editing the file:
 
 ```julia
-include("src/CLBM/plot_truncation_order_error_comparison.jl")
+include("src/CLBE/plot_truncation_order_error_comparison.jl")
 main(k_values=[3, 4], comparison_ngrid=3, local_n_time=40,
      coeff_method=:numerical, initial_condition=:sinusoidal, u_ini=0.1)
 ```
@@ -389,7 +397,7 @@ Useful variations include:
 
 Interpretation notes:
 
-- for strict implementation validation, rely on the one-step and RHS agreement checks in [src/CLBM/unit_tests_minimal.jl](src/CLBM/unit_tests_minimal.jl).
+- for strict implementation validation, rely on the one-step and RHS agreement checks in [src/CLBE/unit_tests_minimal.jl](src/CLBE/unit_tests_minimal.jl).
 
 ## 2D Taylor-Green flow workflow
 
@@ -398,12 +406,12 @@ The repository now also contains a 2D D2Q9 Taylor-Green (TG) workflow for:
 - a pure numerical LBM baseline,
 - a periodic analytical TG benchmark,
 - a boundary-initialized TG visualization case,
-- an experimental 2D CLBM-vs-LBM comparison driver.
+- an experimental 2D CLBE-vs-LBM comparison driver.
 
 The main files are:
 
 - [src/LBM/tg_d2q9_lbm_run.jl](src/LBM/tg_d2q9_lbm_run.jl): pure numerical D2Q9 TG LBM runner,
-- [src/CLBM/clbm_tg2d_run.jl](src/CLBM/clbm_tg2d_run.jl): 2D CLBM-vs-LBM TG driver,
+- [src/CLBE/clbe_tg2d_run.jl](src/CLBE/clbe_tg2d_run.jl): 2D CLBE-vs-LBM TG driver,
 - [src/LBM/streaming.jl](src/LBM/streaming.jl): current numerical D2Q9 streaming and wall treatment.
 
 ### Periodic TG benchmark against the analytical solution
@@ -460,7 +468,7 @@ A recent `16×16`, `tau=0.8`, `A=0.02`, `t=19` periodic run gave:
 
 ### Boundary-initialized TG visualization case
 
-The boundary-value TG run is not the exact analytical Taylor-Green benchmark. Instead, it is a useful visual baseline using the repository’s current D2Q9 wall treatment:
+The boundary-value TG run is not the exact analytical Taylor-Green benchmark. Instead, it is a useful visual baseline using the repository's current D2Q9 wall treatment:
 
 - periodic in `x`,
 - top/bottom no-slip bounce-back in `y`.
@@ -483,45 +491,45 @@ By default, this saves a PDF to:
 
 - `$HOME/Documents/git-tex/QC/QCFD-QCLBM/figs/tg_d2q9_boundary_nx16_ny16_nt20.pdf`
 
-### 2D CLBM TG driver
+### 2D CLBE TG driver
 
-The 2D CLBM driver is:
+The 2D CLBE driver is:
 
-- [src/CLBM/clbm_tg2d_run.jl](src/CLBM/clbm_tg2d_run.jl)
+- [src/CLBE/clbe_tg2d_run.jl](src/CLBE/clbe_tg2d_run.jl)
 
 It is structured so that:
 
 - the numerical D2Q9 LBM run provides the reference history,
 - numerical Carleman coefficient generation is the default path, while symbolic derivation remains available as an option,
-- periodic and boundary-aware streaming operators can be selected on the CLBM side.
+- periodic and boundary-aware streaming operators can be selected on the CLBE side.
 
-Run a small 2D CLBM TG test from Julia with:
+Run a small 2D CLBE TG test from Julia with:
 
 ```julia
-include("src/CLBM/clbm_tg2d_run.jl")
+include("src/CLBE/clbe_tg2d_run.jl")
 main(nx=3, ny=3, amplitude=0.02, local_n_time=4, l_plot=false, coeff_method=:numerical)
 ```
 
 Important note:
 
 - the pure numerical D2Q9 LBM TG benchmark is working and validated against the analytical periodic solution,
-- the full 2D CLBM path is still experimental because symbolic D2Q9 Carleman coefficient generation is much heavier than the 1D D1Q3 workflow.
+- the full 2D CLBE path is still experimental because symbolic D2Q9 Carleman coefficient generation is much heavier than the 1D D1Q3 workflow.
 
 ## Which script to run for which result
 
-### Run a standard CLBM case
+### Run a standard CLBE case
 
 ```julia
-include("src/CLBM/clbm_multigrid_run.jl")
+include("src/CLBE/clbe_multigrid_run.jl")
 main(comparison_ngrid=6, local_use_sparse=true, local_n_time=100, l_plot=true, coeff_method=:numerical)
 ```
 
-Use this for the standard configured CLBM run and plot.
+Use this for the standard configured CLBE run and plot.
 
 ### Verify the corrected multi-grid implementation
 
 ```bash
-julia --project=. src/CLBM/unit_tests_minimal.jl
+julia --project=. src/CLBE/unit_tests_minimal.jl
 ```
 
 Use this to check:
@@ -529,17 +537,17 @@ Use this to check:
 - `ngrid = 2` periodic uniform validation,
 - `ngrid = 3` nonuniform centered-difference operator validation.
 
-### Display domain-averaged CLBM vs LBM curves and errors
+### Display domain-averaged CLBE vs LBM curves and errors
 
 ```julia
-include("src/CLBM/plot_multigrid_domain_average.jl")
+include("src/CLBE/plot_multigrid_domain_average.jl")
 main(local_n_time=100, comparison_ngrid=6, local_truncation_order=3, coeff_method=:numerical)
 ```
 
 ### Compare multiple truncation orders
 
 ```julia
-include("src/CLBM/plot_truncation_order_error_comparison.jl")
+include("src/CLBE/plot_truncation_order_error_comparison.jl")
 main(k_values=[3, 4], comparison_ngrid=6, local_n_time=100, coeff_method=:numerical)
 ```
 
@@ -554,7 +562,7 @@ Use this to get:
 ### Compare error histories for different truncation orders
 
 ```julia
-include("src/CLBM/plot_truncation_order_error_comparison.jl")
+include("src/CLBE/plot_truncation_order_error_comparison.jl")
 main(k_values=[3, 4], comparison_ngrid=6, local_n_time=100, coeff_method=:numerical)
 ```
 
@@ -566,12 +574,13 @@ Use this to get:
 
 ## Relevant files
 
-- [src/CLBM/clbm_multigrid_run.jl](src/CLBM/clbm_multigrid_run.jl): primary CLBM operational driver
-- [src/CLBM/clbm_run.jl](src/CLBM/clbm_run.jl): compatibility wrapper for the operational driver
-- [src/CLBM/clbm_config.jl](src/CLBM/clbm_config.jl): shared configuration
-- [src/CLBM/unit_tests_minimal.jl](src/CLBM/unit_tests_minimal.jl): minimal regression tests
-- [src/CLBM/plot_multigrid_domain_average.jl](src/CLBM/plot_multigrid_domain_average.jl): domain-averaged multi-grid comparison plot
-- [src/CLBM/plot_truncation_order_error_comparison.jl](src/CLBM/plot_truncation_order_error_comparison.jl): truncation-order error comparison plot
-- [src/CLBM/timeMarching.jl](src/CLBM/timeMarching.jl): CLBM and direct n-point time marching helpers
-- [src/CLBM/streaming_Carleman.jl](src/CLBM/streaming_Carleman.jl): centered finite-difference streaming operators
+- [src/CLBE/clbe_multigrid_run.jl](src/CLBE/clbe_multigrid_run.jl): primary CLBE operational driver
+- [src/CLBE/clbe_run.jl](src/CLBE/clbe_run.jl): compatibility wrapper for the operational driver
+- [src/CLBE/clbe_config.jl](src/CLBE/clbe_config.jl): shared configuration
+- [src/CLBE/unit_tests_minimal.jl](src/CLBE/unit_tests_minimal.jl): minimal regression tests
+- [src/CLBE/plot_multigrid_domain_average.jl](src/CLBE/plot_multigrid_domain_average.jl): domain-averaged multi-grid comparison plot
+- [src/CLBE/plot_truncation_order_error_comparison.jl](src/CLBE/plot_truncation_order_error_comparison.jl): truncation-order error comparison plot
+- [src/CLBE/timeMarching.jl](src/CLBE/timeMarching.jl): CLBE time marching helpers (sparse and dense)
+- [src/CLBE/streaming_Carleman.jl](src/CLBE/streaming_Carleman.jl): centered finite-difference streaming operators
+- [src/LBE/direct_LBE.jl](src/LBE/direct_LBE.jl): direct semi-discrete n-point LBE reference ODE
 - [src/LBM/streaming.jl](src/LBM/streaming.jl): exact lattice-shift streaming implementation

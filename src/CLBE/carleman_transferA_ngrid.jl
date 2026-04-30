@@ -1,7 +1,7 @@
 QCFD_SRC = ENV["QCFD_SRC"]  
 QCFD_HOME = ENV["QCFD_HOME"]  
 
-include(QCFD_SRC * "CLBM/carleman_transferA.jl")
+include(QCFD_SRC * "CLBE/carleman_transferA.jl")
 
 function infer_lbm_dimension(e_value)
     if e_value isa AbstractVector && !isempty(e_value) && first(e_value) isa AbstractVector

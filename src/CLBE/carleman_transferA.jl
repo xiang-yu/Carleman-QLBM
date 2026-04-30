@@ -1,7 +1,7 @@
 QCFD_HOME = ENV["QCFD_HOME"]  
 QCFD_SRC = ENV["QCFD_SRC"]  
 include(QCFD_HOME * "/julia_lib/matrix_kit.jl")
-include(QCFD_SRC * "CLBM/LBM_const_subs.jl")
+include(QCFD_SRC * "CLBE/LBM_const_subs.jl")
 
 function F_carlemanOrder_Q_collision(iQ, order, f, omega, tau_value)
     #=

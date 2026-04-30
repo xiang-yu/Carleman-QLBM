@@ -11,21 +11,21 @@ if l_sympy
     using SymPy
     using LinearAlgebra
     using SparseArrays
-    include(QCFD_SRC * "CLBM/coeffs_poly.jl")
+    include(QCFD_SRC * "CLBE/coeffs_poly.jl")
 else
     using Symbolics
 end
 
-include("clbm_config.jl")
+include("clbe_config.jl")
 
-include(QCFD_SRC * "CLBM/collision_sym.jl")
-include(QCFD_SRC * "CLBM/carleman_transferA.jl")
-include(QCFD_SRC * "CLBM/carleman_transferA_ngrid.jl")
-include(QCFD_SRC * "CLBM/LBM_const_subs.jl")
+include(QCFD_SRC * "CLBE/collision_sym.jl")
+include(QCFD_SRC * "CLBE/carleman_transferA.jl")
+include(QCFD_SRC * "CLBE/carleman_transferA_ngrid.jl")
+include(QCFD_SRC * "CLBE/LBM_const_subs.jl")
 include(QCFD_SRC * "LBM/lbm_const_sym.jl")
 include(QCFD_SRC * "LBM/cal_feq.jl")
 include(QCFD_SRC * "LBM/tg_d2q9_lbm_run.jl")
-include(QCFD_SRC * "CLBM/timeMarching.jl")
+include(QCFD_SRC * "CLBE/timeMarching.jl")
 
 function streaming_operator_D2Q9_interleaved_periodic(nx, ny, hx, hy)
     e = [
@@ -430,7 +430,7 @@ function select_d2q9_streaming_operator(nx, ny, hx, hy; boundary_setup=false)
     return streaming_operator_D2Q9_interleaved_periodic(nx, ny, hx, hy)
 end
 
-function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0, local_n_time=10, l_plot=false, boundary_setup=false, coeff_method=coeff_generation_method, local_truncation_order=truncation_order)
+function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001, local_n_time=10, l_plot=false, boundary_setup=false, coeff_method=coeff_generation_method, local_truncation_order=truncation_order)
     if nx < 3 || ny < 3
         error("Use nx >= 3 and ny >= 3 for non-degenerate periodic centered-difference TG streaming.")
     end
@@ -439,15 +439,17 @@ function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0, local_n_time=10, l_pl
         error("local_truncation_order must satisfy local_truncation_order >= poly_order. Got local_truncation_order = $(local_truncation_order), poly_order = $(poly_order).")
     end
 
+    # QCFD convention: ngrid = LX * LY * LZ. D2Q9 TG flow is 2D, so LZ = 1.
     global LX = nx
     global LY = ny
-    global ngrid = nx * ny
+    global LZ = 1
+    global ngrid = LX * LY * LZ
     global Q = 9
     global D = 2
     global use_sparse = true
     global force_factor = 0.0
     global rho0 = rho_value
-    global lTaylor = false
+    global lTaylor = true
     global truncation_order = local_truncation_order
     global coeff_generation_method = coeff_method
 
@@ -481,7 +483,7 @@ function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0, local_n_time=10, l_pl
     dist_rel_err = dist_abs_err ./ max.(abs.(phiT_lbe), eps(Float64))
     vel_abs_err, vel_rel_err = velocity_error_history(phiT_lbe, phiT_clbm, nx, ny, e_value)
 
-    println("Running $(case_label) CLBM/LBM comparison")
+    println("Running $(case_label) CLBE/LBM comparison")
     println("  grid = $(nx)×$(ny)")
     println("  Q = $Q, D = $D")
     println("  poly_order = $poly_order, truncation_order = $truncation_order")

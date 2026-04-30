@@ -7,37 +7,47 @@ using HDF5
 using LaTeXStrings
 
 include(QCFD_HOME * "/visualization/plot_kit.jl")
-include(QCFD_HOME * "/visualization/plot_CLBM_LBM.jl")
+include(QCFD_HOME * "/visualization/plot_CLBE_LBM.jl")
 
 if l_sympy
     using SymPy
     using LinearAlgebra
-    include(QCFD_SRC * "CLBM/coeffs_poly.jl")
+    include(QCFD_SRC * "CLBE/coeffs_poly.jl")
 else
     using Symbolics
 end
 
-include("clbm_config.jl")
-include(QCFD_SRC * "CLBM/collision_sym.jl")
-include(QCFD_SRC * "CLBM/carleman_transferA.jl")
-include(QCFD_SRC * "CLBM/carleman_transferA_ngrid.jl")
-include(QCFD_SRC * "CLBM/LBM_const_subs.jl")
+include("clbe_config.jl")
+include(QCFD_SRC * "CLBE/collision_sym.jl")
+include(QCFD_SRC * "CLBE/carleman_transferA.jl")
+include(QCFD_SRC * "CLBE/carleman_transferA_ngrid.jl")
+include(QCFD_SRC * "CLBE/LBM_const_subs.jl")
 include(QCFD_SRC * "LBM/lbm_cons.jl")
 include(QCFD_SRC * "LBM/lbm_const_sym.jl")
 include(QCFD_SRC * "LBM/forcing.jl")
 include(QCFD_SRC * "LBM/f_initial.jl")
-include(QCFD_SRC * "CLBM/streaming_Carleman.jl")
-include(QCFD_SRC * "CLBM/timeMarching.jl")
+include(QCFD_SRC * "CLBE/streaming_Carleman.jl")
+include(QCFD_SRC * "CLBE/timeMarching.jl")
+include(QCFD_SRC * "LBE/direct_LBE.jl")
 
 function multigrid_initial_condition(comparison_ngrid; initial_condition=:legacy, u_ini=0.1)
     return d1q3_multigrid_initial_condition(comparison_ngrid; initial_condition=initial_condition, u_ini=u_ini)
 end
 
 function compute_domain_average_comparison(; local_n_time=max(n_time, 40), comparison_ngrid=3, local_truncation_order=truncation_order, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1)
-    global ngrid = comparison_ngrid
+    # QCFD convention: ngrid = LX * LY * LZ. For D1Q3 multigrid the flow is
+    # 1D, so LY = LZ = 1 and LX = comparison_ngrid.
+    global LX = comparison_ngrid
+    global LY = 1
+    global LZ = 1
+    global ngrid = LX * LY * LZ
     global use_sparse = true
     global truncation_order = local_truncation_order
     global coeff_generation_method = coeff_method
+    # Explicit-Euler stability on the lifted Carleman operator: the config
+    # default dt = 1.0 (LBM lattice-time unit) is unstable for multi-step
+    # runs. Override to tau_value / 10 for this driver. Matches D2Q9.
+    global dt = tau_value / 10
 
     w, e, w_val, e_val = lbm_const_sym()
     global w_value = w_val
@@ -162,7 +172,7 @@ function main(; local_n_time=max(n_time, 40), comparison_ngrid=3, local_truncati
     output_file = joinpath(output_dir, output_basename * ".pdf")
     savefig(output_file)
 
-    println("n_time used for CLBM/LBM comparison = ", local_n_time)
+    println("n_time used for CLBE/LBM comparison = ", local_n_time)
     println("Initial condition = ", initial_condition)
     println("Sinusoidal amplitude u_ini = ", u_ini)
     println("Max domain-averaged absolute difference = ", maximum(avg_abs_err))

@@ -1,32 +1,8 @@
 using SparseArrays
 using Statistics
 
-function direct_lbe_rhs_ngrid(phi, S_lbm, F1_ngrid, F2_ngrid, F3_ngrid)
-    rhs = -S_lbm * phi + F1_ngrid * phi
-    if F2_ngrid !== nothing
-        rhs += F2_ngrid * kron(phi, phi)
-    end
-    if F3_ngrid !== nothing
-        rhs += F3_ngrid * kron(phi, kron(phi, phi))
-    end
-    return rhs
-end
-
-function timeMarching_direct_LBE_ngrid(phi_ini, dt, n_time, F1_ngrid, F2_ngrid, F3_ngrid; S_lbm=nothing)
-    if S_lbm === nothing
-        S_lbm, _ = streaming_operator_D1Q3_interleaved(ngrid, 1)
-    end
-
-    phiT = zeros(length(phi_ini), n_time)
-    phiT[:, 1] = Float64.(phi_ini)
-
-    for nt = 2:n_time
-        rhs = direct_lbe_rhs_ngrid(phiT[:, nt - 1], S_lbm, F1_ngrid, F2_ngrid, F3_ngrid)
-        phiT[:, nt] = phiT[:, nt - 1] + dt * rhs
-    end
-
-    return phiT
-end
+# Direct semi-discrete n-point LBE is implemented in src/LBE/direct_LBE.jl;
+# this file hosts the Carleman-linearized time marching and sparse assembly.
 
 function timeMarching_state_CLBM_sparse(omega, f, tau_value, Q, truncation_order, dt, phi_ini, n_time; S_lbm=nothing, nspatial=ngrid)
     V0 = Float64.(carleman_V(phi_ini, truncation_order))

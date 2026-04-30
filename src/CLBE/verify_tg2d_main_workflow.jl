@@ -4,7 +4,7 @@ using Printf
 
 # Direct end-to-end benchmark of the top-level D2Q9 TG driver workflow.
 #
-# This script benchmarks src/CLBM/clbm_tg2d_run.jl::main(...) itself, rather than
+# This script benchmarks src/CLBE/clbe_tg2d_run.jl::main(...) itself, rather than
 # reconstructing operator pieces manually. The goal is to exercise:
 #   - numerical reference generation,
 #   - Carleman setup,
@@ -14,7 +14,7 @@ using Printf
 #
 # The cases are intentionally small so they remain feasible for repeated checks.
 
-include("clbm_tg2d_run.jl")
+include("clbe_tg2d_run.jl")
 
 struct TG2DCase
     label::String

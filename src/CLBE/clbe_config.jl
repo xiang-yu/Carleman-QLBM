@@ -1,18 +1,29 @@
-# CLBM Configuration Parameters
+# CLBE Configuration Parameters
 # Centralized configuration to avoid duplication across files
 
 # Global simulation parameters
 global tau_value = 1.0
 global n_time = 10
-global dt = tau_value / 10
+# dt = 1 is the LBM lattice-time unit (Li et al., Eq. (eq:clbm)). It is the
+# value required to match the discrete LBM streaming+collision iteration
+# one-for-one. Individual test/benchmark drivers may override this globally
+# to `tau_value / 10` (or similar) when running collision-only tests, or when
+# explicit-Euler stability on the lifted Carleman operator demands a smaller
+# step — the imaginary streaming eigenvalues make explicit Euler unstable at
+# dt = 1 on multi-step runs. See Xiaolong 2023-10-30 comment in the reference
+# repo `QCFD/src/CLBM/carleman_Forets_Pouly.jl` for the convention.
+global dt = 1.0
 
-# Domain parameters  
+# Domain parameters
 global LX = 1
 global LY = 1
 global LZ = 1
 
-# Grid parameters
-global ngrid = 2
+# Grid parameters: derived from the physical lattice dimensions so that
+# ngrid = LX * LY * LZ holds everywhere in the code (QCFD convention).
+# Drivers that want a nonuniform ngrid should set LX/LY/LZ first, then
+# re-derive ngrid = LX*LY*LZ.
+global ngrid = LX * LY * LZ
 
 # true: Use sparse matrices (recommended for ngrid > 1)
 # false: Use dense matrices (only feasible for small problems)
@@ -90,7 +101,7 @@ global u0 = 0.1
 global w_value = [2/3, 1/6, 1/6]
 global e_value = [0.0, 1.0, -1.0]
 
-println("CLBM configuration loaded:")
+println("CLBE configuration loaded:")
 println("  tau_value = $tau_value")
 println("  n_time = $n_time") 
 println("  dt = $dt")
