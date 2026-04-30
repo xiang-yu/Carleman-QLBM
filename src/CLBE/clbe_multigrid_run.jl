@@ -126,7 +126,82 @@ function run_legacy_collision_driver(runtime, core_cfg::CLBECoreConfig, case_cfg
     return fT, VT_f, VT
 end
 
-function run_multigrid_driver(runtime, core_cfg::CLBECoreConfig, case_cfg::D1Q3MultigridConfig; l_plot=true)
+function run_singlepoint_affine_driver(runtime, core_cfg::CLBECoreConfig, case_cfg::D1Q3MultigridConfig; l_plot=true, integrator=:matrix_exponential)
+    local_n_time = case_cfg.n_time
+    local_truncation_order = case_cfg.truncation_order
+
+    phi_ini = multigrid_initial_condition(1; initial_condition=case_cfg.initial_condition, u_ini=case_cfg.u_ini)
+    S_lbm = zeros(core_cfg.Q, core_cfg.Q)
+
+    phiT_lbe = timeMarching_direct_LBE_ngrid(
+        phi_ini,
+        case_cfg.dt,
+        local_n_time,
+        F1_ngrid,
+        F2_ngrid,
+        F3_ngrid;
+        S_lbm=S_lbm,
+    )
+
+    phiT_clbm, VT = timeMarching_state_CLBM_sparse(
+        runtime.omega,
+        runtime.f,
+        core_cfg.tau_value,
+        core_cfg.Q,
+        local_truncation_order,
+        case_cfg.dt,
+        phi_ini,
+        local_n_time;
+        S_lbm=S_lbm,
+        nspatial=1,
+        integrator=integrator,
+    )
+
+    avg_lbe = domain_average_distribution_history(phiT_lbe, core_cfg.Q, 1)
+    avg_clbm = domain_average_distribution_history(phiT_clbm, core_cfg.Q, 1)
+    avg_abs_err = abs.(avg_clbm .- avg_lbe)
+    avg_rel_err = avg_abs_err ./ max.(abs.(avg_lbe), eps(Float64))
+
+    if l_plot
+        close("all")
+        time = 1:local_n_time
+        figure(figsize=(12, 10))
+        for m = 1:core_cfg.Q
+            subplot(3, core_cfg.Q, m)
+            plot(time, avg_lbe[m, :], "ok", label="direct LBE")
+            plot(time, avg_clbm[m, :], "-", color="r", linewidth=1.8, label="CLBE")
+            xlabel("Time step")
+            ylabel(latexstring("\\langle f_{$m} \\rangle"))
+            if m == 1
+                legend(loc="best")
+            end
+
+            subplot(3, core_cfg.Q, core_cfg.Q + m)
+            semilogy(time, avg_abs_err[m, :], "-", color="b", linewidth=1.8)
+            xlabel("Time step")
+            ylabel(latexstring("|\\langle f_{$m} \\rangle^{\\mathrm{CLBE}} - \\langle f_{$m} \\rangle^{\\mathrm{LBE}}|"))
+
+            subplot(3, core_cfg.Q, 2 * core_cfg.Q + m)
+            semilogy(time, avg_rel_err[m, :], "-", color="g", linewidth=1.8)
+            xlabel("Time step")
+            ylabel(latexstring("|\\langle f_{$m} \\rangle^{\\mathrm{CLBE}} - \\langle f_{$m} \\rangle^{\\mathrm{LBE}}| / \\max(|\\langle f_{$m} \\rangle^{\\mathrm{LBE}}|, \\varepsilon)"))
+        end
+        suptitle("single-point affine CLBE comparison, k = $local_truncation_order, IC = $(case_cfg.initial_condition), integrator = $(integrator)")
+        tight_layout(rect=(0, 0, 1, 0.96))
+        display(gcf())
+        show()
+    end
+
+    println("Running single-point affine CLBE/direct-LBE comparison (ngrid = 1, integrator = $(integrator))")
+    println("Initial condition = ", case_cfg.initial_condition)
+    println("Sinusoidal amplitude u_ini = ", case_cfg.u_ini)
+    println("Max domain-averaged absolute difference = ", maximum(avg_abs_err))
+    println("Max domain-averaged relative difference = ", maximum(avg_rel_err))
+
+    return phiT_lbe, phiT_clbm, VT, avg_abs_err, avg_rel_err
+end
+
+function run_multigrid_driver(runtime, core_cfg::CLBECoreConfig, case_cfg::D1Q3MultigridConfig; l_plot=true, integrator=:euler)
     local_ngrid = runtime.ngrid
     local_n_time = case_cfg.n_time
     local_truncation_order = case_cfg.truncation_order
@@ -143,7 +218,7 @@ function run_multigrid_driver(runtime, core_cfg::CLBECoreConfig, case_cfg::D1Q3M
 
     S_lbm, _ = streaming_operator_D1Q3_interleaved(local_ngrid, 1)
     phiT_lbe = timeMarching_direct_LBE_ngrid(phi_ini, case_cfg.dt, local_n_time, F1_ngrid, F2_ngrid, F3_ngrid; S_lbm=S_lbm)
-    phiT_clbm, VT = timeMarching_state_CLBM_sparse(runtime.omega, runtime.f, core_cfg.tau_value, core_cfg.Q, local_truncation_order, case_cfg.dt, phi_ini, local_n_time; S_lbm=S_lbm, nspatial=local_ngrid)
+    phiT_clbm, VT = timeMarching_state_CLBM_sparse(runtime.omega, runtime.f, core_cfg.tau_value, core_cfg.Q, local_truncation_order, case_cfg.dt, phi_ini, local_n_time; S_lbm=S_lbm, nspatial=local_ngrid, integrator=integrator)
 
     avg_lbe = domain_average_distribution_history(phiT_lbe, core_cfg.Q, local_ngrid)
     avg_clbm = domain_average_distribution_history(phiT_clbm, core_cfg.Q, local_ngrid)
@@ -194,7 +269,7 @@ function run_multigrid_driver(runtime, core_cfg::CLBECoreConfig, case_cfg::D1Q3M
 end
 
 """
-    main(; comparison_ngrid, local_use_sparse, local_n_time, local_truncation_order, l_plot, coeff_method, initial_condition, u_ini, dt_override)
+    main(; comparison_ngrid, local_use_sparse, local_n_time, local_truncation_order, l_plot, coeff_method, initial_condition, u_ini, dt_override, integrator)
 
 Run D1Q3 CLBE/LBM multigrid driver with explicit truncation order.
 
@@ -208,23 +283,29 @@ Arguments:
     initial_condition: D1Q3 initial-condition selector (`:legacy` or `:sinusoidal`)
     u_ini: Velocity amplitude used by the sinusoidal initializer
     dt_override: Optional explicit time step for the D1Q3 run; if omitted, uses the multigrid stability convention `tau_value / 10`
+    integrator: CLBE time integrator (`:euler` or `:matrix_exponential`; the exponential option uses a sparse Krylov expv-style propagator for large lifted systems)
 
 Example usage:
-    main(comparison_ngrid=6, local_truncation_order=4, local_n_time=100, initial_condition=:sinusoidal, u_ini=0.1, dt_override=0.05)
+    main(comparison_ngrid=6, local_truncation_order=4, local_n_time=100, initial_condition=:sinusoidal, u_ini=0.1, dt_override=0.05, integrator=:euler)
 """
-function run_d1q3_multigrid(case_cfg::D1Q3MultigridConfig, core_cfg::CLBECoreConfig=default_clbe_core_config(); l_plot=true)
+function run_d1q3_multigrid(case_cfg::D1Q3MultigridConfig, core_cfg::CLBECoreConfig=default_clbe_core_config(); l_plot=true, integrator=:euler)
     runtime = prepare_d1q3_runtime(core_cfg, case_cfg)
+    integrator_key = normalize_clbe_integrator(integrator)
 
     if runtime.ngrid == 1
-        println("Running legacy single-point CLBM collision test (ngrid = 1)")
-        return run_legacy_collision_driver(runtime, core_cfg, case_cfg; l_plot=l_plot)
+        if integrator_key == :euler
+            println("Running legacy single-point CLBM collision test (ngrid = 1)")
+            return run_legacy_collision_driver(runtime, core_cfg, case_cfg; l_plot=l_plot)
+        end
+
+        return run_singlepoint_affine_driver(runtime, core_cfg, case_cfg; l_plot=l_plot, integrator=integrator_key)
     end
 
     println("Running validated multigrid CLBM collision+streaming comparison (ngrid = $(runtime.ngrid), coeff_method = $(case_cfg.coeff_generation_method), initial_condition = $(case_cfg.initial_condition))")
-    return run_multigrid_driver(runtime, core_cfg, case_cfg; l_plot=l_plot)
+    return run_multigrid_driver(runtime, core_cfg, case_cfg; l_plot=l_plot, integrator=integrator)
 end
 
-function main(; comparison_ngrid=ngrid, local_use_sparse=use_sparse, local_n_time=n_time, local_truncation_order=truncation_order, l_plot=true, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1, dt_override=nothing)
+function main(; comparison_ngrid=ngrid, local_use_sparse=use_sparse, local_n_time=n_time, local_truncation_order=truncation_order, l_plot=true, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1, dt_override=nothing, integrator=:euler)
     effective_n_time = comparison_ngrid == 1 ? local_n_time : max(local_n_time, 40)
     core_cfg, case_cfg = build_d1q3_multigrid_configs(
         comparison_ngrid=comparison_ngrid,
@@ -236,5 +317,5 @@ function main(; comparison_ngrid=ngrid, local_use_sparse=use_sparse, local_n_tim
         u_ini=u_ini,
         dt_override=dt_override,
     )
-    return run_d1q3_multigrid(case_cfg, core_cfg; l_plot=l_plot)
+    return run_d1q3_multigrid(case_cfg, core_cfg; l_plot=l_plot, integrator=integrator)
 end

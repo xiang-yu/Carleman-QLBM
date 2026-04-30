@@ -8,7 +8,7 @@ using LaTeXStrings
 include("plot_multigrid_domain_average.jl")
 
 """
-    main(; k_values=[3, 4], comparison_ngrid=3, local_n_time=100, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1, dt_override=nothing)
+    main(; k_values=[3, 4], comparison_ngrid=3, local_n_time=100, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1, dt_override=nothing, integrator=:euler)
 
 Compare D1Q3 truncation-order behavior by reusing the multigrid
 CLBE/LBM comparison workflow for each requested truncation order.
@@ -21,11 +21,12 @@ Arguments:
     initial_condition: D1Q3 initial-condition selector (`:legacy` or `:sinusoidal`)
     u_ini: Velocity amplitude used by the sinusoidal initializer
     dt_override: Optional explicit time step shared by the compared runs
+    integrator: CLBE time integrator (`:euler` or `:matrix_exponential`; the exponential option uses a sparse Krylov expv-style propagator for large lifted systems)
 
 Example usage:
-    main(k_values=[3,4], comparison_ngrid=6, local_n_time=100, initial_condition=:sinusoidal, u_ini=0.1, dt_override=0.05)
+    main(k_values=[3,4], comparison_ngrid=6, local_n_time=100, initial_condition=:sinusoidal, u_ini=0.1, dt_override=0.05, integrator=:euler)
 """
-function main(; k_values=[3, 4], comparison_ngrid=3, local_n_time=100, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1, dt_override=nothing)
+function main(; k_values=[3, 4], comparison_ngrid=3, local_n_time=100, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1, dt_override=nothing, integrator=:euler)
     if length(k_values) != 2
         error("This simplified script is intended for exactly two truncation orders, e.g. k_values=[3, 4].")
     end
@@ -42,6 +43,7 @@ function main(; k_values=[3, 4], comparison_ngrid=3, local_n_time=100, coeff_met
             initial_condition=initial_condition,
             u_ini=u_ini,
             dt_override=dt_override,
+            integrator=integrator,
         )
         avg_abs_err_by_k[k] = comparison_data.avg_abs_err
         avg_rel_err_by_k[k] = comparison_data.avg_rel_err

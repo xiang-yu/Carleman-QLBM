@@ -13,7 +13,7 @@ include(QCFD_SRC * "CLBE/clbe_tg2d_run.jl")
 include(QCFD_SRC * "LBE/direct_LBE.jl")
 
 """
-    main(; k_values=[3, 4], nx=3, ny=3, amplitude=0.02, local_n_time=100, coeff_method=:numerical)
+    main(; k_values=[3, 4], nx=3, ny=3, amplitude=0.02, local_n_time=100, coeff_method=:numerical, integrator=:euler)
 
 D2Q9 mirror of `plot_truncation_order_error_comparison.jl`: compare the
 domain-averaged absolute and relative error of each velocity component
@@ -22,9 +22,10 @@ n-point LBE (apples-to-apples, same F, same S, same dt).
 
 rho_value is pinned to 1.0001 (matching the D1Q3 multigrid strategy) so the
 polynomial decomposition is well-posed and the ⟨ρ⟩ ≈ 1 Taylor assumption
-of Li et al. holds.
+of Li et al. holds. The `:matrix_exponential` integrator uses a sparse
+Krylov expv-style propagator for large lifted systems.
 """
-function main(; k_values=[3, 4], nx=3, ny=3, amplitude=0.02, local_n_time=100, coeff_method=:numerical)
+function main(; k_values=[3, 4], nx=3, ny=3, amplitude=0.02, local_n_time=100, coeff_method=:numerical, integrator=:euler)
     if length(k_values) != 2
         error("This simplified script is intended for exactly two truncation orders, e.g. k_values=[3, 4].")
     end
@@ -62,7 +63,7 @@ function main(; k_values=[3, 4], nx=3, ny=3, amplitude=0.02, local_n_time=100, c
             F1_ngrid, F2_ngrid, F3_ngrid; S_lbm=S_lbm)
         phiT_clbm, _ = timeMarching_state_CLBM_sparse(
             setup.symbolic_collision, setup.symbolic_state, 1.0, Q, k,
-            dt, phi_ini, local_n_time; S_lbm=S_lbm, nspatial=ngrid_local,
+            dt, phi_ini, local_n_time; S_lbm=S_lbm, nspatial=ngrid_local, integrator=integrator,
         )
 
         avg_lbe  = zeros(Q, local_n_time)

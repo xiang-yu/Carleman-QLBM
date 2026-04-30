@@ -1,11 +1,90 @@
+using LinearAlgebra
 using SparseArrays
 using Statistics
 
 # Direct semi-discrete n-point LBE is implemented in src/LBE/direct_LBE.jl;
 # this file hosts the Carleman-linearized time marching and sparse assembly.
 
-function timeMarching_state_CLBM_sparse(omega, f, tau_value, Q, truncation_order, dt, phi_ini, n_time; S_lbm=nothing, nspatial=ngrid)
+const CLBE_MATRIX_EXP_WARN_DIM = 400
+const CLBE_KRYLOV_DIM_DEFAULT = 30
+const CLBE_KRYLOV_TOL_DEFAULT = 1e-10
+
+function normalize_clbe_integrator(integrator)
+    if integrator in (:euler, "euler")
+        return :euler
+    elseif integrator in (:matrix_exponential, :exp, "matrix_exponential", "exp")
+        return :matrix_exponential
+    else
+        error("Unsupported CLBE integrator $(repr(integrator)). Supported options are :euler and :matrix_exponential (alias :exp).")
+    end
+end
+
+function affine_augmented_mul(C_sparse, bt, x)
+    state_dim = size(C_sparse, 1)
+    y = zeros(Float64, state_dim + 1)
+    y[1:state_dim] .= C_sparse * view(x, 1:state_dim) .+ bt .* x[end]
+    y[end] = 0.0
+    return y
+end
+
+function krylov_expv_affine(C_sparse, bt, v, dt; m=CLBE_KRYLOV_DIM_DEFAULT, tol=CLBE_KRYLOV_TOL_DEFAULT)
+    n_aug = length(v)
+    beta = norm(v)
+    if iszero(beta)
+        return copy(v)
+    end
+
+    m_eff = min(m, n_aug)
+    V = zeros(Float64, n_aug, m_eff + 1)
+    H = zeros(Float64, m_eff + 1, m_eff)
+    V[:, 1] = v ./ beta
+
+    actual_m = m_eff
+    for j = 1:m_eff
+        w = affine_augmented_mul(C_sparse, bt, view(V, :, j))
+        for i = 1:j
+            hij = dot(view(V, :, i), w)
+            H[i, j] = hij
+            w .-= hij .* view(V, :, i)
+        end
+
+        hnext = norm(w)
+        H[j + 1, j] = hnext
+
+        if hnext <= tol
+            actual_m = j
+            break
+        end
+
+        if j < m_eff
+            V[:, j + 1] = w ./ hnext
+        end
+    end
+
+    H_small = H[1:actual_m, 1:actual_m]
+    e1 = zeros(Float64, actual_m)
+    e1[1] = beta
+    y_small = exp(dt * H_small) * e1
+
+    return V[:, 1:actual_m] * y_small
+end
+
+function warn_large_matrix_exponential_dimension(state_dim)
+    if state_dim > CLBE_MATRIX_EXP_WARN_DIM
+        @warn(
+            "Large lifted CLBE dimension for matrix-exponential integrator; using sparse Krylov expv-style propagation instead of dense exp(A)." *
+            " Performance/accuracy depend on Krylov subspace size.",
+            state_dim=state_dim,
+            warn_dim=CLBE_MATRIX_EXP_WARN_DIM,
+            krylov_dim=CLBE_KRYLOV_DIM_DEFAULT,
+            krylov_tol=CLBE_KRYLOV_TOL_DEFAULT,
+        )
+    end
+end
+
+function timeMarching_state_CLBM_sparse(omega, f, tau_value, Q, truncation_order, dt, phi_ini, n_time; S_lbm=nothing, nspatial=ngrid, integrator=:euler)
     V0 = Float64.(carleman_V(phi_ini, truncation_order))
+    integrator_key = normalize_clbe_integrator(integrator)
 
     C_sparse, bt, _ = carleman_C_sparse(Q, truncation_order, poly_order, f, omega, tau_value, force_factor, w_value, e_value)
     if nspatial > 1
@@ -18,9 +97,19 @@ function timeMarching_state_CLBM_sparse(omega, f, tau_value, Q, truncation_order
     phiT = zeros(length(phi_ini), n_time)
     phiT[:, 1] = Float64.(phi_ini)
 
-    for nt = 2:n_time
-        VT[:, nt] = (C_sparse * VT[:, nt - 1] + bt) .* dt .+ VT[:, nt - 1]
-        phiT[:, nt] = VT[1:length(phi_ini), nt]
+    if integrator_key == :euler
+        for nt = 2:n_time
+            VT[:, nt] = (C_sparse * VT[:, nt - 1] + bt) .* dt .+ VT[:, nt - 1]
+            phiT[:, nt] = VT[1:length(phi_ini), nt]
+        end
+    else
+        warn_large_matrix_exponential_dimension(size(C_sparse, 1))
+        augmented_state = vcat(V0, 1.0)
+        for nt = 2:n_time
+            augmented_state = krylov_expv_affine(C_sparse, bt, augmented_state, dt)
+            VT[:, nt] = augmented_state[1:length(V0)]
+            phiT[:, nt] = VT[1:length(phi_ini), nt]
+        end
     end
 
     return phiT, VT

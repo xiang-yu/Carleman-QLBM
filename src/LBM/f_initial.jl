@@ -71,6 +71,9 @@ Return the original repository D1Q3 multigrid velocity profile.
   grid.
 """
 function d1q3_legacy_velocity_profile(nx)
+    if nx == 1
+        return [0.12]
+    end
     if nx == 3
         return [0.12, 0.00, -0.08]
     end

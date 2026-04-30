@@ -682,7 +682,7 @@ function select_d2q9_streaming_operator(nx, ny, hx, hy; boundary_setup=false)
     return streaming_operator_D2Q9_interleaved_periodic(nx, ny, hx, hy)
 end
 
-function run_tg2d_clbe_comparison(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001, local_n_time=n_time, boundary_setup=false, coeff_method=coeff_generation_method, local_truncation_order=truncation_order, reference_model=:direct_lbe)
+function run_tg2d_clbe_comparison(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001, local_n_time=n_time, boundary_setup=false, coeff_method=coeff_generation_method, local_truncation_order=truncation_order, reference_model=:direct_lbe, integrator=:euler)
     if nx < 3 || ny < 3
         error("Use nx >= 3 and ny >= 3 for non-degenerate periodic centered-difference TG streaming.")
     end
@@ -735,6 +735,7 @@ function run_tg2d_clbe_comparison(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001
         local_n_time;
         S_lbm=S_lbm,
         nspatial=ngrid_local,
+        integrator=integrator,
     )
 
     dist_abs_err = abs.(phiT_clbm .- phiT_ref)
@@ -764,7 +765,7 @@ function run_tg2d_clbe_comparison(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001
     )
 end
 
-function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001, local_n_time=n_time, l_plot=false, boundary_setup=false, coeff_method=coeff_generation_method, local_truncation_order=truncation_order, reference_model=:direct_lbe, save_output=false, output_dir="data/tg2d_clbe_comparison", snapshot_every=0)
+function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001, local_n_time=n_time, l_plot=false, boundary_setup=false, coeff_method=coeff_generation_method, local_truncation_order=truncation_order, reference_model=:direct_lbe, save_output=false, output_dir="data/tg2d_clbe_comparison", snapshot_every=0, integrator=:euler)
     result = run_tg2d_clbe_comparison(
         nx=nx,
         ny=ny,
@@ -775,6 +776,7 @@ function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001, local_n_time=n_tim
         coeff_method=coeff_method,
         local_truncation_order=local_truncation_order,
         reference_model=reference_model,
+        integrator=integrator,
     )
 
     if save_output
