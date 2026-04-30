@@ -202,7 +202,64 @@ function run_singlepoint_affine_driver(runtime, core_cfg::CLBECoreConfig, case_c
     return phiT_lbe, phiT_clbm, VT, avg_abs_err, avg_rel_err
 end
 
-function run_multigrid_driver(runtime, core_cfg::CLBECoreConfig, case_cfg::D1Q3MultigridConfig; l_plot=true, integrator=:euler, direct_lbe_integrator=:euler)
+function d1q3_interleaved_site_to_exact_lbm(site_state)
+    return Float64[site_state[2], site_state[3], site_state[1]]
+end
+
+function d1q3_exact_lbm_site_to_interleaved(site_state)
+    return Float64[site_state[3], site_state[1], site_state[2]]
+end
+
+function d1q3_exact_lbm_history(phi_ini, local_ngrid, local_n_time; tau_value)
+    q_local = 3
+    weights = (2.0 / 3.0, 1.0 / 6.0, 1.0 / 6.0)
+    current_state = zeros(Float64, local_ngrid, q_local)
+    collided_state = similar(current_state)
+    streamed_state = similar(current_state)
+    phi_hist = zeros(Float64, length(phi_ini), local_n_time)
+    phi_hist[:, 1] .= Float64.(phi_ini)
+
+    for ix = 1:local_ngrid
+        block = phi_ini[(q_local * (ix - 1) + 1):(q_local * ix)]
+        current_state[ix, :] .= d1q3_interleaved_site_to_exact_lbm(block)
+    end
+
+    for nt = 2:local_n_time
+        for ix = 1:local_ngrid
+            f0, fp, fm = current_state[ix, 1], current_state[ix, 2], current_state[ix, 3]
+            rho = f0 + fp + fm
+            u = abs(rho) <= eps(Float64) ? 0.0 : (fp - fm) / rho
+            u2 = u^2
+
+            feq0 = rho * weights[1] * (1.0 - 1.5 * u2)
+            feqp = rho * weights[2] * (1.0 + 3.0 * u + 3.0 * u2)
+            feqm = rho * weights[3] * (1.0 - 3.0 * u + 3.0 * u2)
+
+            collided_state[ix, 1] = f0 - (f0 - feq0) / tau_value
+            collided_state[ix, 2] = fp - (fp - feqp) / tau_value
+            collided_state[ix, 3] = fm - (fm - feqm) / tau_value
+        end
+
+        for ix = 1:local_ngrid
+            left_ix = ix == 1 ? local_ngrid : ix - 1
+            right_ix = ix == local_ngrid ? 1 : ix + 1
+            streamed_state[ix, 1] = collided_state[ix, 1]
+            streamed_state[ix, 2] = collided_state[left_ix, 2]
+            streamed_state[ix, 3] = collided_state[right_ix, 3]
+        end
+
+        current_state .= streamed_state
+
+        for ix = 1:local_ngrid
+            phi_hist[(q_local * (ix - 1) + 1):(q_local * ix), nt] .= d1q3_exact_lbm_site_to_interleaved(view(current_state, ix, :))
+        end
+    end
+
+    avg_lbm_exact = domain_average_distribution_history(phi_hist, q_local, local_ngrid)
+    return phi_hist, avg_lbm_exact
+end
+
+function run_multigrid_driver(runtime, core_cfg::CLBECoreConfig, case_cfg::D1Q3MultigridConfig; l_plot=true, integrator=:euler, direct_lbe_integrator=:euler, show_exact_lbm=false)
     local_ngrid = runtime.ngrid
     local_n_time = case_cfg.n_time
     local_truncation_order = case_cfg.truncation_order
@@ -225,6 +282,17 @@ function run_multigrid_driver(runtime, core_cfg::CLBECoreConfig, case_cfg::D1Q3M
     avg_clbm = domain_average_distribution_history(phiT_clbm, core_cfg.Q, local_ngrid)
     avg_abs_err = abs.(avg_clbm .- avg_lbe)
     avg_rel_err = avg_abs_err ./ max.(abs.(avg_lbe), eps(Float64))
+    show_exact_lbm_overlay = show_exact_lbm
+    avg_lbm_exact = nothing
+
+    if show_exact_lbm_overlay
+        if isapprox(case_cfg.dt, 1.0; atol=1e-12, rtol=0.0)
+            _, avg_lbm_exact = d1q3_exact_lbm_history(phi_ini, local_ngrid, local_n_time; tau_value=core_cfg.tau_value)
+        else
+            println("ℹ️  Exact discrete LBM comparison is only available for dt = 1; skipping exact-LBM overlay because dt = $(case_cfg.dt)")
+            show_exact_lbm_overlay = false
+        end
+    end
 
     if l_plot
         close("all")
@@ -232,8 +300,14 @@ function run_multigrid_driver(runtime, core_cfg::CLBECoreConfig, case_cfg::D1Q3M
         figure(figsize=(12, 10))
         for m = 1:core_cfg.Q
             subplot(3, core_cfg.Q, m)
-            plot(time, avg_lbe[m, :], "ok", label="LBM")
-            plot(time, avg_clbm[m, :], "-", color="r", linewidth=1.8, label="CLBM")
+            if show_exact_lbm_overlay
+                plot(time, avg_lbm_exact[m, :], "-k", linewidth=1.8, label="LBM")
+                plot(time, avg_lbe[m, :], "or", markersize=5, markerfacecolor="none", label="LBE")
+                plot(time, avg_clbm[m, :], "sb", markersize=5, markerfacecolor="none", label="CLBE")
+            else
+                plot(time, avg_lbe[m, :], "or", markersize=5, markerfacecolor="none", label="LBE")
+                plot(time, avg_clbm[m, :], "-", color="b", linewidth=1.8, label="CLBE")
+            end
             xlabel("Time step")
             ylabel(latexstring("\\langle f_{$m} \\rangle"))
             if m == 1
@@ -243,14 +317,15 @@ function run_multigrid_driver(runtime, core_cfg::CLBECoreConfig, case_cfg::D1Q3M
             subplot(3, core_cfg.Q, core_cfg.Q + m)
             semilogy(time, avg_abs_err[m, :], "-", color="b", linewidth=1.8)
             xlabel("Time step")
-            ylabel(latexstring("|\\langle f_{$m} \\rangle^{\\mathrm{CLBM}} - \\langle f_{$m} \\rangle^{\\mathrm{LBM}}|"))
+            ylabel(latexstring("|\\langle f_{$m} \\rangle^{\\mathrm{CLBE}} - \\langle f_{$m} \\rangle^{\\mathrm{LBE}}|"))
 
             subplot(3, core_cfg.Q, 2 * core_cfg.Q + m)
             semilogy(time, avg_rel_err[m, :], "-", color="g", linewidth=1.8)
             xlabel("Time step")
-            ylabel(latexstring("|\\langle f_{$m} \\rangle^{\\mathrm{CLBM}} - \\langle f_{$m} \\rangle^{\\mathrm{LBM}}| / \\langle f_{$m} \\rangle^{\\mathrm{LBM}}"))
+            ylabel(latexstring("|\\langle f_{$m} \\rangle^{\\mathrm{CLBE}} - \\langle f_{$m} \\rangle^{\\mathrm{LBE}}| / \\max(|\\langle f_{$m} \\rangle^{\\mathrm{LBE}}|, \\varepsilon)"))
         end
-        suptitle("ngrid = $local_ngrid, k = $local_truncation_order, IC = $(case_cfg.initial_condition)")
+        plot_label = show_exact_lbm_overlay ? "LBM / LBE / CLBE" : "LBE / CLBE"
+        suptitle("ngrid = $local_ngrid, k = $local_truncation_order, IC = $(case_cfg.initial_condition), $plot_label")
         tight_layout(rect=(0, 0, 1, 0.96))
         display(gcf())
         show()
@@ -270,7 +345,7 @@ function run_multigrid_driver(runtime, core_cfg::CLBECoreConfig, case_cfg::D1Q3M
 end
 
 """
-    main(; comparison_ngrid, local_use_sparse, local_n_time, local_truncation_order, l_plot, coeff_method, initial_condition, u_ini, dt_override, integrator, direct_lbe_integrator)
+    main(; comparison_ngrid, local_use_sparse, local_n_time, local_truncation_order, l_plot, coeff_method, initial_condition, u_ini, dt_override, integrator, direct_lbe_integrator, show_exact_lbm)
 
 Run D1Q3 CLBE/LBM multigrid driver with explicit truncation order.
 
@@ -286,11 +361,12 @@ Arguments:
     dt_override: Optional explicit time step for the D1Q3 run; if omitted, uses the multigrid stability convention `tau_value / 10`
     integrator: CLBE time integrator (`:euler` or `:matrix_exponential`; the exponential option uses a sparse Krylov expv-style propagator for large lifted systems)
     direct_lbe_integrator: direct n-point LBE integrator (`:euler` or `:exponential_euler`, aliases `:etd`/`:etd1`)
+    show_exact_lbm: When `true` and `dt = 1`, overlay the exact discrete D1Q3 LBM history in the comparison plot
 
 Example usage:
-    main(comparison_ngrid=6, local_truncation_order=4, local_n_time=100, initial_condition=:sinusoidal, u_ini=0.1, dt_override=0.05, integrator=:euler, direct_lbe_integrator=:euler)
+    main(comparison_ngrid=6, local_truncation_order=4, local_n_time=100, initial_condition=:sinusoidal, u_ini=0.1, dt_override=1.0, integrator=:matrix_exponential, direct_lbe_integrator=:exponential_euler, show_exact_lbm=true)
 """
-function run_d1q3_multigrid(case_cfg::D1Q3MultigridConfig, core_cfg::CLBECoreConfig=default_clbe_core_config(); l_plot=true, integrator=:euler, direct_lbe_integrator=:euler)
+function run_d1q3_multigrid(case_cfg::D1Q3MultigridConfig, core_cfg::CLBECoreConfig=default_clbe_core_config(); l_plot=true, integrator=:euler, direct_lbe_integrator=:euler, show_exact_lbm=false)
     runtime = prepare_d1q3_runtime(core_cfg, case_cfg)
     integrator_key = normalize_clbe_integrator(integrator)
 
@@ -300,14 +376,18 @@ function run_d1q3_multigrid(case_cfg::D1Q3MultigridConfig, core_cfg::CLBECoreCon
             return run_legacy_collision_driver(runtime, core_cfg, case_cfg; l_plot=l_plot)
         end
 
+        if show_exact_lbm
+            println("ℹ️  show_exact_lbm is currently only used by the ngrid >= 2 D1Q3 multigrid plotting path; ignoring it for ngrid = 1")
+        end
+
         return run_singlepoint_affine_driver(runtime, core_cfg, case_cfg; l_plot=l_plot, integrator=integrator_key, direct_lbe_integrator=direct_lbe_integrator)
     end
 
     println("Running validated multigrid CLBM collision+streaming comparison (ngrid = $(runtime.ngrid), coeff_method = $(case_cfg.coeff_generation_method), initial_condition = $(case_cfg.initial_condition))")
-    return run_multigrid_driver(runtime, core_cfg, case_cfg; l_plot=l_plot, integrator=integrator, direct_lbe_integrator=direct_lbe_integrator)
+    return run_multigrid_driver(runtime, core_cfg, case_cfg; l_plot=l_plot, integrator=integrator, direct_lbe_integrator=direct_lbe_integrator, show_exact_lbm=show_exact_lbm)
 end
 
-function main(; comparison_ngrid=ngrid, local_use_sparse=use_sparse, local_n_time=n_time, local_truncation_order=truncation_order, l_plot=true, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1, dt_override=nothing, integrator=:euler, direct_lbe_integrator=:euler)
+function main(; comparison_ngrid=ngrid, local_use_sparse=use_sparse, local_n_time=n_time, local_truncation_order=truncation_order, l_plot=true, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1, dt_override=nothing, integrator=:euler, direct_lbe_integrator=:euler, show_exact_lbm=false)
     effective_n_time = local_n_time
     core_cfg, case_cfg = build_d1q3_multigrid_configs(
         comparison_ngrid=comparison_ngrid,
@@ -319,5 +399,5 @@ function main(; comparison_ngrid=ngrid, local_use_sparse=use_sparse, local_n_tim
         u_ini=u_ini,
         dt_override=dt_override,
     )
-    return run_d1q3_multigrid(case_cfg, core_cfg; l_plot=l_plot, integrator=integrator, direct_lbe_integrator=direct_lbe_integrator)
+    return run_d1q3_multigrid(case_cfg, core_cfg; l_plot=l_plot, integrator=integrator, direct_lbe_integrator=direct_lbe_integrator, show_exact_lbm=show_exact_lbm)
 end
