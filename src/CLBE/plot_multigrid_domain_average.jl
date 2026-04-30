@@ -23,7 +23,7 @@ function multigrid_initial_condition(comparison_ngrid; initial_condition=:legacy
     return d1q3_multigrid_initial_condition(comparison_ngrid; initial_condition=initial_condition, u_ini=u_ini)
 end
 
-function compute_domain_average_comparison(; local_n_time=max(n_time, 40), comparison_ngrid=3, local_truncation_order=truncation_order, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1)
+function compute_domain_average_comparison(; local_n_time=max(n_time, 40), comparison_ngrid=3, local_truncation_order=truncation_order, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1, dt_override=nothing)
     core_cfg, case_cfg = build_d1q3_multigrid_configs(
         comparison_ngrid=comparison_ngrid,
         local_use_sparse=true,
@@ -32,6 +32,7 @@ function compute_domain_average_comparison(; local_n_time=max(n_time, 40), compa
         coeff_method=coeff_method,
         initial_condition=initial_condition,
         u_ini=u_ini,
+        dt_override=dt_override,
     )
     phiT_lbe, phiT_clbm, VT, avg_abs_err, avg_rel_err = run_d1q3_multigrid(case_cfg, core_cfg; l_plot=false)
 
@@ -94,7 +95,7 @@ function plot_domain_average_comparison!(comparison_data; figure_size=(12, 10))
 end
 
 """
-    main(; local_n_time, comparison_ngrid, local_truncation_order, output_basename, coeff_method, initial_condition, u_ini)
+    main(; local_n_time, comparison_ngrid, local_truncation_order, output_basename, coeff_method, initial_condition, u_ini, dt_override)
 
 Run domain-averaged CLBM vs LBM comparison for D1Q3 multigrid.
 
@@ -106,11 +107,12 @@ Arguments:
     coeff_method: Coefficient generation method (optional)
     initial_condition: D1Q3 initial-condition selector (`:legacy` or `:sinusoidal`)
     u_ini: Velocity amplitude used by the sinusoidal initializer
+    dt_override: Optional explicit time step; if omitted, uses the multigrid stability convention `tau_value / 10`
 
 Example usage:
-    main(local_n_time=100, comparison_ngrid=6, local_truncation_order=4, initial_condition=:sinusoidal, u_ini=0.1)
+    main(local_n_time=100, comparison_ngrid=6, local_truncation_order=4, initial_condition=:sinusoidal, u_ini=0.1, dt_override=0.05)
 """
-function main(; local_n_time=max(n_time, 40), comparison_ngrid=3, local_truncation_order=truncation_order, output_basename=nothing, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1)
+function main(; local_n_time=max(n_time, 40), comparison_ngrid=3, local_truncation_order=truncation_order, output_basename=nothing, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1, dt_override=nothing)
     comparison_data = compute_domain_average_comparison(
         local_n_time=local_n_time,
         comparison_ngrid=comparison_ngrid,
@@ -118,6 +120,7 @@ function main(; local_n_time=max(n_time, 40), comparison_ngrid=3, local_truncati
         coeff_method=coeff_method,
         initial_condition=initial_condition,
         u_ini=u_ini,
+        dt_override=dt_override,
     )
     _, avg_abs_err, avg_rel_err = plot_domain_average_comparison!(comparison_data)
 
@@ -133,6 +136,7 @@ function main(; local_n_time=max(n_time, 40), comparison_ngrid=3, local_truncati
     println("n_time used for CLBE/LBM comparison = ", local_n_time)
     println("Initial condition = ", initial_condition)
     println("Sinusoidal amplitude u_ini = ", u_ini)
+    println("Time step dt = ", dt_override === nothing ? d1q3_multigrid_stable_dt(default_clbe_core_config()) : dt_override)
     println("Max domain-averaged absolute difference = ", maximum(avg_abs_err))
     println("Max domain-averaged relative difference = ", maximum(avg_rel_err))
     for m = 1:Q

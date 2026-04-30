@@ -194,7 +194,7 @@ function run_multigrid_driver(runtime, core_cfg::CLBECoreConfig, case_cfg::D1Q3M
 end
 
 """
-    main(; comparison_ngrid, local_use_sparse, local_n_time, local_truncation_order, l_plot, coeff_method, initial_condition, u_ini)
+    main(; comparison_ngrid, local_use_sparse, local_n_time, local_truncation_order, l_plot, coeff_method, initial_condition, u_ini, dt_override)
 
 Run D1Q3 CLBE/LBM multigrid driver with explicit truncation order.
 
@@ -207,9 +207,10 @@ Arguments:
     coeff_method: Coefficient generation method (optional)
     initial_condition: D1Q3 initial-condition selector (`:legacy` or `:sinusoidal`)
     u_ini: Velocity amplitude used by the sinusoidal initializer
+    dt_override: Optional explicit time step for the D1Q3 run; if omitted, uses the multigrid stability convention `tau_value / 10`
 
 Example usage:
-    main(comparison_ngrid=6, local_truncation_order=4, local_n_time=100, initial_condition=:sinusoidal, u_ini=0.1)
+    main(comparison_ngrid=6, local_truncation_order=4, local_n_time=100, initial_condition=:sinusoidal, u_ini=0.1, dt_override=0.05)
 """
 function run_d1q3_multigrid(case_cfg::D1Q3MultigridConfig, core_cfg::CLBECoreConfig=default_clbe_core_config(); l_plot=true)
     runtime = prepare_d1q3_runtime(core_cfg, case_cfg)
@@ -223,7 +224,7 @@ function run_d1q3_multigrid(case_cfg::D1Q3MultigridConfig, core_cfg::CLBECoreCon
     return run_multigrid_driver(runtime, core_cfg, case_cfg; l_plot=l_plot)
 end
 
-function main(; comparison_ngrid=ngrid, local_use_sparse=use_sparse, local_n_time=n_time, local_truncation_order=truncation_order, l_plot=true, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1)
+function main(; comparison_ngrid=ngrid, local_use_sparse=use_sparse, local_n_time=n_time, local_truncation_order=truncation_order, l_plot=true, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1, dt_override=nothing)
     effective_n_time = comparison_ngrid == 1 ? local_n_time : max(local_n_time, 40)
     core_cfg, case_cfg = build_d1q3_multigrid_configs(
         comparison_ngrid=comparison_ngrid,
@@ -233,6 +234,7 @@ function main(; comparison_ngrid=ngrid, local_use_sparse=use_sparse, local_n_tim
         coeff_method=coeff_method,
         initial_condition=initial_condition,
         u_ini=u_ini,
+        dt_override=dt_override,
     )
     return run_d1q3_multigrid(case_cfg, core_cfg; l_plot=l_plot)
 end

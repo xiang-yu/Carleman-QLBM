@@ -8,7 +8,7 @@ using LaTeXStrings
 include("plot_multigrid_domain_average.jl")
 
 """
-    main(; k_values=[3, 4], comparison_ngrid=3, local_n_time=100, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1)
+    main(; k_values=[3, 4], comparison_ngrid=3, local_n_time=100, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1, dt_override=nothing)
 
 Compare D1Q3 truncation-order behavior by reusing the multigrid
 CLBE/LBM comparison workflow for each requested truncation order.
@@ -20,11 +20,12 @@ Arguments:
     coeff_method: Coefficient generation method (optional)
     initial_condition: D1Q3 initial-condition selector (`:legacy` or `:sinusoidal`)
     u_ini: Velocity amplitude used by the sinusoidal initializer
+    dt_override: Optional explicit time step shared by the compared runs
 
 Example usage:
-    main(k_values=[3,4], comparison_ngrid=6, local_n_time=100, initial_condition=:sinusoidal, u_ini=0.1)
+    main(k_values=[3,4], comparison_ngrid=6, local_n_time=100, initial_condition=:sinusoidal, u_ini=0.1, dt_override=0.05)
 """
-function main(; k_values=[3, 4], comparison_ngrid=3, local_n_time=100, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1)
+function main(; k_values=[3, 4], comparison_ngrid=3, local_n_time=100, coeff_method=coeff_generation_method, initial_condition=:legacy, u_ini=0.1, dt_override=nothing)
     if length(k_values) != 2
         error("This simplified script is intended for exactly two truncation orders, e.g. k_values=[3, 4].")
     end
@@ -40,6 +41,7 @@ function main(; k_values=[3, 4], comparison_ngrid=3, local_n_time=100, coeff_met
             coeff_method=coeff_method,
             initial_condition=initial_condition,
             u_ini=u_ini,
+            dt_override=dt_override,
         )
         avg_abs_err_by_k[k] = comparison_data.avg_abs_err
         avg_rel_err_by_k[k] = comparison_data.avg_rel_err
@@ -107,6 +109,7 @@ function main(; k_values=[3, 4], comparison_ngrid=3, local_n_time=100, coeff_met
     println("Compared truncation orders: ", collect(k_values))
     println("Initial condition = ", initial_condition)
     println("Sinusoidal amplitude u_ini = ", u_ini)
+    println("Time step dt = ", dt_override === nothing ? d1q3_multigrid_stable_dt(default_clbe_core_config()) : dt_override)
     for k in k_values
         println("truncation order k = ", k)
         println("  overall max domain-averaged absolute error = ", maximum(avg_abs_err_by_k[k]))
