@@ -47,6 +47,7 @@ Main.main(
     dt_override=1.0,
     integrator=:matrix_exponential,
     direct_lbe_integrator=:exponential_euler,
+    show_exact_lbm=true,
 )
 '
 ```
@@ -55,7 +56,11 @@ In this mode:
 
 - `integrator=:matrix_exponential` selects the CLBE exponential time march,
 - `direct_lbe_integrator=:exponential_euler` selects the direct n-point LBE ETD / exponential-Euler reference,
+- `show_exact_lbm=true` overlays the exact discrete D1Q3 LBM history in the top-row plot when `dt_override=1.0`,
+- with `show_exact_lbm=true`, the top-row plot uses a solid black line for `LBM`, red circles for `LBE`, and blue squares for `CLBE`,
 - `local_n_time` is used **exactly as passed** and is no longer floored to a minimum of 40.
+
+If `show_exact_lbm=true` is used with `dt_override != 1.0`, the exact-LBM overlay is skipped because the exact lattice-shift reference is only available for unit time step.
 
 If you want to use the newer configuration-oriented API directly:
 
@@ -257,6 +262,7 @@ Main.main(
     dt_override=1.0,
     integrator=:matrix_exponential,
     direct_lbe_integrator=:exponential_euler,
+    show_exact_lbm=true,
 )
 '
 ```
@@ -268,6 +274,68 @@ Accepted direct-LBE ETD keywords are:
 - `:etd1`
 
 This is the recommended D1Q3 comparison mode when you want the CLBE and direct-LBE references to use compatible exponential-style time integration.
+
+If you also want the plot to show the exact discrete D1Q3 LBM reference, set `show_exact_lbm=true` together with `dt_override=1.0` and enable plotting with `l_plot=true`. In that overlay, `LBM` is drawn as a solid black line, `LBE` as red circles, and `CLBE` as blue squares. If `dt_override != 1.0`, the exact-LBM overlay is skipped.
+
+### D1Q3 Carleman-matrix norm / spectral-estimate sweep
+
+To compute the D1Q3 full-generator matrix norm as a function of `ngrid`, run from the repository root:
+
+```bash
+julia --project=. check_d1q3_cfull_norm_vs_ngrid.jl
+```
+
+This script sweeps
+
+```julia
+ngrid = [1, 3, 6, 12, 24, 48]
+```
+
+and reports the full lifted generator
+
+$$
+C_{\mathrm{full}} = C - S,
+$$
+
+including:
+
+- the lifted dimension,
+- the number of nonzeros,
+- the exact infinity norm `||C_full||_∞`,
+- a power-iteration estimate of the operator / spectral 2-norm.
+
+The text summary is written to:
+
+- `data/d1q3_cfull_norm_vs_ngrid_summary.txt`
+
+If `TEXPATH` is set, the plot PDF is written under:
+
+- `$TEXPATH/`
+
+### D1Q3 generator-path equality verification
+
+To verify that the production D1Q3 time-marching path uses the same shared sparse full-generator assembly as the norm-sweep script, run:
+
+```bash
+julia --project=. verify_d1q3_generator_path_equality.jl
+```
+
+This checks the overlapping cases
+
+```julia
+ngrid = [1, 3, 6, 12, 24, 48]
+```
+
+and compares:
+
+- the explicit Euler update formed directly from the assembled full generator,
+- the update returned by `timeMarching_state_CLBM_sparse(...)`.
+
+The verification summary is written to:
+
+- `data/d1q3_generator_path_equality_summary.txt`
+
+Zero differences in that summary confirm that both paths use the same shared `C - S` assembly.
 
 ### Carleman coefficient-generation mode
 
@@ -295,6 +363,7 @@ Important:
 - After including them, explicitly call `main(...)` with the parameters you want.
 - If you want more explicit control than `main(...)`, use `build_d1q3_multigrid_configs(...)` plus `run_d1q3_multigrid(...)`.
 - For D1Q3 runs, you can set the time step either through `main(..., dt_override=...)` or through `build_d1q3_multigrid_configs(..., dt_override=...)`.
+- The public D1Q3 time-marching entry points are unchanged by the refactor: use `main(...)` or `run_d1q3_multigrid(...)` as before. Internally, the sparse CLBE evolution and the D1Q3 norm-sweep now share the same sparse numerical coefficient-lifting and full-generator assembly path.
 
 The legacy entry point [src/CLBE/clbe_run.jl](src/CLBE/clbe_run.jl) is retained as a thin compatibility wrapper that simply includes [src/CLBE/clbe_multigrid_run.jl](src/CLBE/clbe_multigrid_run.jl).
 
@@ -734,11 +803,12 @@ Main.main(
     dt_override=1.0,
     integrator=:matrix_exponential,
     direct_lbe_integrator=:exponential_euler,
+    show_exact_lbm=true,
 )
 '
 ```
 
-Use this for the D1Q3 CLBE-vs-direct-LBE apples-to-apples ETD comparison.
+Use this for the D1Q3 CLBE-vs-direct-LBE apples-to-apples ETD comparison. Set `show_exact_lbm=true` to also overlay the exact discrete D1Q3 LBM history in the plot when `dt_override=1.0`.
 
 ### Run the D2Q9 TG ETD comparison
 

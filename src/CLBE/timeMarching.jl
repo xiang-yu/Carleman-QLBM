@@ -86,10 +86,19 @@ function timeMarching_state_CLBM_sparse(omega, f, tau_value, Q, truncation_order
     V0 = Float64.(carleman_V(phi_ini, truncation_order))
     integrator_key = normalize_clbe_integrator(integrator)
 
-    C_sparse, bt, _ = carleman_C_sparse(Q, truncation_order, poly_order, f, omega, tau_value, force_factor, w_value, e_value)
-    if nspatial > 1
-        C_sparse = C_sparse - build_streaming_carleman_operator_sparse(Q, truncation_order, poly_order, nspatial; S_lbm=S_lbm)
-    end
+    C_sparse, bt, _ = build_full_clbe_generator_sparse(
+        omega,
+        f,
+        tau_value,
+        Q,
+        truncation_order,
+        poly_order,
+        force_factor,
+        w_value,
+        e_value;
+        S_lbm=S_lbm,
+        nspatial=nspatial,
+    )
 
     VT = zeros(length(V0), n_time)
     VT[:, 1] = V0
@@ -141,6 +150,14 @@ function build_streaming_carleman_operator_sparse(Q, truncation_order, poly_orde
 
     streaming_matrix = S_lbm === nothing ? streaming_operator_D1Q3_interleaved(ngrid, 1)[1] : S_lbm
     return carleman_S_sparse(Q, truncation_order, poly_order, ngrid, streaming_matrix)
+end
+
+function build_full_clbe_generator_sparse(omega, f, tau_value, Q, truncation_order, poly_order, force_factor, w_value, e_value; S_lbm=nothing, nspatial=ngrid)
+    C_sparse, bt, F0 = carleman_C_sparse(Q, truncation_order, poly_order, f, omega, tau_value, force_factor, w_value, e_value)
+    if nspatial > 1
+        C_sparse = C_sparse - build_streaming_carleman_operator_sparse(Q, truncation_order, poly_order, nspatial; S_lbm=S_lbm)
+    end
+    return C_sparse, bt, F0
 end
 
 function timeMarching_collision(omega, f, f_ini, tau_value, e_value, dt,  n_time, l_plot)
@@ -372,11 +389,7 @@ function timeMarching_collision_CLBM_sparse(omega, f, tau_value, Q, truncation_o
     V0 = carleman_V(f_ini, truncation_order)
     V0 = Float64.(V0)
 
-    # FIXED: Build sparse matrix ONCE outside the time loop for efficiency
     C_sparse, bt, F0 = carleman_C_sparse(Q, truncation_order, poly_order, f, omega, tau_value, force_factor, w_value, e_value)
-    if ngrid > 1
-        C_sparse = C_sparse - build_streaming_carleman_operator_sparse(Q, truncation_order, poly_order, ngrid)
-    end
 
     # Initialize with proper size based on V0 length
     VT = zeros(length(V0), n_time)

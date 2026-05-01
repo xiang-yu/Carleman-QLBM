@@ -1,6 +1,8 @@
 QCFD_SRC = ENV["QCFD_SRC"]  
 QCFD_HOME = ENV["QCFD_HOME"]  
 
+using SparseArrays
+
 include(QCFD_SRC * "CLBE/carleman_transferA.jl")
 
 function infer_lbm_dimension(e_value)
@@ -224,6 +226,70 @@ function coeff_LBM_Fi_xalpha(Fj, which_alpha, ngrid, order)
     return F_xalpha
 end
 
+function sparse_lift_local_collision(F_single::AbstractMatrix, Q::Int, ngrid::Int, order::Int)
+    nQ = ngrid * Q
+    row_dim = nQ
+    col_dim = nQ^order
+
+    I = Int[]
+    J = Int[]
+    V = Float64[]
+
+    if order == 1
+        for α = 1:ngrid, r = 1:Q, c = 1:Q
+            val = F_single[r, c]
+            iszero(val) && continue
+            push!(I, (α - 1) * Q + r)
+            push!(J, (α - 1) * Q + c)
+            push!(V, val)
+        end
+    elseif order == 2
+        for α = 1:ngrid, r = 1:Q, c1 = 1:Q, c2 = 1:Q
+            val = F_single[r, index2(c1, c2, Q)]
+            iszero(val) && continue
+            g1 = (α - 1) * Q + c1
+            g2 = (α - 1) * Q + c2
+            push!(I, (α - 1) * Q + r)
+            push!(J, index2(g1, g2, nQ))
+            push!(V, val)
+        end
+    elseif order == 3
+        for α = 1:ngrid, r = 1:Q, c1 = 1:Q, c2 = 1:Q, c3 = 1:Q
+            val = F_single[r, index3(c1, c2, c3, Q)]
+            iszero(val) && continue
+            g1 = (α - 1) * Q + c1
+            g2 = (α - 1) * Q + c2
+            g3 = (α - 1) * Q + c3
+            push!(I, (α - 1) * Q + r)
+            push!(J, index3(g1, g2, g3, nQ))
+            push!(V, val)
+        end
+    else
+        error("Unsupported order = $order")
+    end
+
+    return sparse(I, J, V, row_dim, col_dim)
+end
+
+function build_sparse_ngrid_coefficients(poly_order, Q, tau_value, ngrid; w_value_input=nothing, e_value_input=nothing, rho_value_input=nothing, lTaylor_input=nothing, D_input=nothing)
+    F1_single, F2_single, F3_single = numerical_carleman_coefficients(
+        poly_order,
+        Q,
+        tau_value;
+        w_value_input=w_value_input,
+        e_value_input=e_value_input,
+        rho_value_input=rho_value_input,
+        lTaylor_input=lTaylor_input,
+        D_input=D_input,
+    )
+
+    F1_ngrid_local = sparse_lift_local_collision(F1_single, Q, ngrid, 1)
+    F2_ngrid_local = poly_order >= 2 ? sparse_lift_local_collision(F2_single, Q, ngrid, 2) : nothing
+    F3_ngrid_local = poly_order >= 3 ? sparse_lift_local_collision(F3_single, Q, ngrid, 3) : nothing
+
+    return F1_ngrid_local, F2_ngrid_local, F3_ngrid_local
+end
+
 function coeff_LBM_Fi_ngrid(Q, j, f, omega, tau_value, ngrid; method=:symbolic, w_value_input=nothing, e_value_input=nothing, rho_value_input=nothing, lTaylor_input=nothing, D_input=nothing)
     row_dim = ngrid * Q
     col_dim = (ngrid * Q)^j
@@ -244,6 +310,7 @@ function coeff_LBM_Fi_ngrid(Q, j, f, omega, tau_value, ngrid; method=:symbolic, 
             D_input=D_input,
         )
         Fj = j == 1 ? F1_single : (j == 2 ? F2_single : F3_single)
+        return Fj, sparse_lift_local_collision(Fj, Q, ngrid, j)
     else
         error("Unknown coefficient-generation method: $method")
     end
@@ -262,34 +329,17 @@ function get_coeff_LBM_Fi_ngrid(poly_order, Q, f, omega, tau_value, ngrid; metho
     end
 
     if method == :numerical
-        F1_single, F2_single, F3_single = numerical_carleman_coefficients(
+        return build_sparse_ngrid_coefficients(
             poly_order,
             Q,
-            tau_value;
+            tau_value,
+            ngrid;
             w_value_input=w_value_input,
             e_value_input=e_value_input,
             rho_value_input=rho_value_input,
             lTaylor_input=lTaylor_input,
             D_input=D_input,
         )
-
-        lift_to_ngrid(Fj, order) = begin
-            row_dim = ngrid * Q
-            col_dim = (ngrid * Q)^order
-            Fj_ngrid = zeros(row_dim, col_dim)
-            for i = 1:ngrid
-                F_xalpha = coeff_LBM_Fi_xalpha(Fj, i, ngrid, order)
-                ind_s = (i - 1) * Q + 1
-                ind_e = i * Q
-                Fj_ngrid[ind_s:ind_e, :] = F_xalpha
-            end
-            Fj_ngrid
-        end
-
-        F1_ngrid = lift_to_ngrid(F1_single, 1)
-        F2_ngrid = poly_order >= 2 ? lift_to_ngrid(F2_single, 2) : nothing
-        F3_ngrid = poly_order >= 3 ? lift_to_ngrid(F3_single, 3) : nothing
-        return F1_ngrid, F2_ngrid, F3_ngrid
     end
 
     _, F1_ngrid = coeff_LBM_Fi_ngrid(Q, 1, f, omega, tau_value, ngrid; method=method)
