@@ -209,40 +209,32 @@ end
 function plot_periodic_tg_analytical_comparison(ux_num, uy_num, ux_ref, uy_ref; output_file=nothing, tau_value, amplitude, final_time, abs_l2_hist=nothing, rel_l2_hist=nothing, max_abs_hist=nothing)
     speed_num = speed_magnitude(ux_num, uy_num)
     speed_ref = speed_magnitude(ux_ref, uy_ref)
-    ux_err = ux_num - ux_ref
 
     nx, ny = size(ux_num)
     mid_j = cld(ny, 2)
     x = collect(1:nx)
-    time_axis = abs_l2_hist === nothing ? Int[] : collect(0:final_time)
+    have_error_histories = abs_l2_hist !== nothing && rel_l2_hist !== nothing && max_abs_hist !== nothing
+    time_axis = have_error_histories ? collect(range(0.0, stop=final_time, length=length(abs_l2_hist))) : Float64[]
     X = repeat(reshape(collect(1:nx), :, 1), 1, ny)
     Y = repeat(reshape(collect(1:ny), 1, :), nx, 1)
 
     close("all")
-    figure(figsize=(18, 8))
+    figure(figsize=have_error_histories ? (15, 8) : (15, 4.8))
 
-    subplot(2, 4, 1)
-    imshow(speed_num', origin="lower", cmap="viridis")
-    colorbar()
-    title("Numerical |u|")
+    layout = have_error_histories ? (2, 3) : (1, 3)
 
-    subplot(2, 4, 2)
-    imshow(speed_ref', origin="lower", cmap="viridis")
-    colorbar()
-    title("Analytical |u|")
-
-    subplot(2, 4, 3)
-    imshow((speed_num - speed_ref)', origin="lower", cmap="RdBu")
-    colorbar()
-    title("|u| error")
-
-    subplot(2, 4, 4)
+    subplot(layout[1], layout[2], 1)
     quiver(X', Y', ux_num', uy_num')
     title("Numerical vectors")
     xlabel("x")
     ylabel("y")
 
-    subplot(2, 4, 5)
+    subplot(layout[1], layout[2], 2)
+    imshow((speed_num - speed_ref)', origin="lower", cmap="RdBu")
+    colorbar()
+    title("|u| error")
+
+    subplot(layout[1], layout[2], 3)
     plot(x, ux_num[:, mid_j], "or-", label="LBM")
     plot(x, ux_ref[:, mid_j], "-k", linewidth=1.8, label="Analytical")
     xlabel("x")
@@ -250,13 +242,8 @@ function plot_periodic_tg_analytical_comparison(ux_num, uy_num, ux_ref, uy_ref; 
     title("Centerline ux profile")
     legend(loc="best")
 
-    subplot(2, 4, 6)
-    imshow(ux_err', origin="lower", cmap="RdBu")
-    colorbar()
-    title(L"u_x\ error")
-
-    if abs_l2_hist !== nothing && rel_l2_hist !== nothing && max_abs_hist !== nothing
-        subplot(2, 4, 7)
+    if have_error_histories
+        subplot(layout[1], layout[2], 4)
         plot(time_axis, abs_l2_hist, "-o", markersize=3, label="L2 abs")
         plot(time_axis, max_abs_hist, "-s", markersize=3, label="Max abs")
         xlabel("t")
@@ -264,7 +251,7 @@ function plot_periodic_tg_analytical_comparison(ux_num, uy_num, ux_ref, uy_ref; 
         title("Absolute error vs time")
         legend(loc="best")
 
-        subplot(2, 4, 8)
+        subplot(layout[1], layout[2], 5)
         plot(time_axis, rel_l2_hist, "-o", markersize=3, color="tab:red")
         xlabel("t")
         ylabel("Relative L2 error")

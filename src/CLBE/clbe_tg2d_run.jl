@@ -285,16 +285,19 @@ end
 function velocity_error_history(phiT_ref, phiT_clbm, nx, ny, e_value)
     n_time = size(phiT_ref, 2)
     abs_err = zeros(n_time)
+    rel_err = zeros(n_time)
 
     for nt in 1:n_time
         _, ux_ref, uy_ref = macroscopic_fields_from_state(phiT_ref[:, nt], nx, ny, e_value)
         _, ux_clbm, uy_clbm = macroscopic_fields_from_state(phiT_clbm[:, nt], nx, ny, e_value)
 
         err_vec = vcat(vec(ux_clbm - ux_ref), vec(uy_clbm - uy_ref))
+        ref_vec = vcat(vec(ux_ref), vec(uy_ref))
         abs_err[nt] = norm(err_vec)
+        rel_err[nt] = abs_err[nt] / max(norm(ref_vec), eps(Float64))
     end
 
-    return abs_err
+    return abs_err, rel_err
 end
 
 function build_tg2d_diagnostics(phiT_ref, phiT_clbm, nx, ny, e_value)
@@ -313,10 +316,11 @@ function build_tg2d_diagnostics(phiT_ref, phiT_clbm, nx, ny, e_value)
     avg_phi_abs_err = abs.(avg_phi_clbm .- avg_phi_ref)
 
     dist_abs_err = abs.(phiT_clbm .- phiT_ref)
+    dist_rel_err = dist_abs_err ./ max.(abs.(phiT_ref), eps(Float64))
     profile_abs_max = vec(maximum(dist_abs_err, dims=1))
     profile_abs_l2 = vec([norm(dist_abs_err[:, nt]) for nt = 1:n_time_local])
     density_error_norm = density_error_history(phiT_ref, phiT_clbm, nx, ny, e_value)
-    velocity_error_norm = velocity_error_history(phiT_ref, phiT_clbm, nx, ny, e_value)
+    velocity_error_norm, velocity_rel_error_norm = velocity_error_history(phiT_ref, phiT_clbm, nx, ny, e_value)
 
     return (
         rho_ref_mean=rho_ref_mean,
@@ -325,8 +329,10 @@ function build_tg2d_diagnostics(phiT_ref, phiT_clbm, nx, ny, e_value)
         u_ref_rms=u_ref_rms,
         u_clbm_rms=u_clbm_rms,
         u_rms_abs_err=abs.(u_clbm_rms .- u_ref_rms),
+        dist_rel_err=dist_rel_err,
         density_error_norm=density_error_norm,
         velocity_error_norm=velocity_error_norm,
+        velocity_rel_error_norm=velocity_rel_error_norm,
         profile_abs_max=profile_abs_max,
         profile_abs_l2=profile_abs_l2,
         avg_phi_ref=avg_phi_ref,
@@ -421,7 +427,7 @@ function plot_tg2d_comparison(phiT_ref, phiT_clbm, nx, ny, e_value, local_n_time
     _, ux_clbm, uy_clbm = macroscopic_fields_from_state(phiT_clbm[:, end], nx, ny, e_value)
     ux_err = ux_clbm - ux_ref
     uy_err = uy_clbm - uy_ref
-    abs_err = velocity_error_history(phiT_ref, phiT_clbm, nx, ny, e_value)
+    abs_err, _ = velocity_error_history(phiT_ref, phiT_clbm, nx, ny, e_value)
 
     close("all")
     figure(figsize=(14, 8))
@@ -765,6 +771,7 @@ function run_tg2d_clbe_comparison(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001
     )
 
     dist_abs_err = abs.(phiT_clbm .- phiT_ref)
+    dist_rel_err = dist_abs_err ./ max.(abs.(phiT_ref), eps(Float64))
     diagnostics = build_tg2d_diagnostics(phiT_ref, phiT_clbm, nx, ny, e_value)
 
     return (
@@ -775,8 +782,10 @@ function run_tg2d_clbe_comparison(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001
         phiT_clbm=phiT_clbm,
         VT=VT,
         dist_abs_err=dist_abs_err,
+        dist_rel_err=dist_rel_err,
         density_error_norm=diagnostics.density_error_norm,
         vel_abs_err=diagnostics.velocity_error_norm,
+        vel_rel_err=diagnostics.velocity_rel_error_norm,
         diagnostics=diagnostics,
         e_value=e_value,
         setup=setup,
@@ -815,8 +824,10 @@ function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001, local_n_time=n_tim
     phiT_clbm = result.phiT_clbm
     VT = result.VT
     dist_abs_err = result.dist_abs_err
+    dist_rel_err = result.dist_rel_err
     density_error_norm = result.density_error_norm
     vel_abs_err = result.vel_abs_err
+    vel_rel_err = result.vel_rel_err
     case_label = result.case_label
 
     println("Running $(case_label) CLBE comparison")
@@ -837,5 +848,5 @@ function main(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001, local_n_time=n_tim
         plot_tg2d_comparison(phiT_lbe, phiT_clbm, nx, ny, result.e_value, local_n_time, truncation_order; case_label=case_label)
     end
 
-    return phiT_lbe, phiT_clbm, VT, dist_abs_err, density_error_norm, vel_abs_err
+    return phiT_lbe, phiT_clbm, VT, dist_abs_err, dist_rel_err, vel_abs_err, vel_rel_err
 end

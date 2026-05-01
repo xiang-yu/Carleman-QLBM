@@ -37,45 +37,33 @@ function make_plot(nx, ny, k, output_path; local_n_time=n_time)
     safelog(x) = max.(x, 1e-10)
 
     close("all")
-    fig = figure(figsize=(14, 11))
+    fig = figure(figsize=(10, 8))
 
-    ax = subplot(3, 2, 1)
+    ax = subplot(2, 2, 1)
     plot(t, diag.rho_ref_mean,  "-k", linewidth=2.0, label="direct n-point LBE")
     plot(t, diag.rho_clbm_mean, "--r", linewidth=1.6, label="CLBE")
     y_mid = mean(diag.rho_ref_mean); y_range = max(maximum(abs.(diag.rho_ref_mean .- y_mid)), 1e-8) * 5 + 1e-6
     ax.set_ylim(y_mid - y_range, y_mid + y_range)
     xlabel(L"t"); ylabel(L"\langle \rho \rangle")
-    title("Domain-averaged density"); legend(loc="best"); grid(true)
+    legend(loc="best"); grid(true)
 
-    subplot(3, 2, 2)
+    subplot(2, 2, 2)
     semilogy(t, safelog(diag.u_ref_rms),  "-k", linewidth=2.0, label="direct n-point LBE")
     semilogy(t, safelog(diag.u_clbm_rms), "--r", linewidth=1.6, label="CLBE")
     xlabel(L"t"); ylabel(L"\sqrt{\langle |u|^2 \rangle}")
-    title("Domain-averaged velocity magnitude"); legend(loc="best"); grid(true)
+    legend(loc="best"); grid(true)
 
-    subplot(3, 2, 3)
+    subplot(2, 2, 3)
     semilogy(t, safelog(diag.rho_mean_abs_err), "-b", linewidth=1.8)
     xlabel(L"t"); ylabel(L"|\langle\rho\rangle_{\mathrm{CLBE}} - \langle\rho\rangle_{\mathrm{LBE}}|")
-    title("Absolute error, ⟨ρ⟩"); grid(true)
+    grid(true)
 
-    subplot(3, 2, 4)
+    subplot(2, 2, 4)
     semilogy(t, safelog(diag.u_rms_abs_err), "-b", linewidth=1.8)
     xlabel(L"t"); ylabel(L"|\langle|u|\rangle_{\mathrm{CLBE}} - \langle|u|\rangle_{\mathrm{LBE}}|")
-    title("Absolute error, ⟨|u|⟩"); grid(true)
+    grid(true)
 
-    subplot(3, 2, 5)
-    semilogy(t, safelog(diag.profile_abs_max), "-b", linewidth=1.8, label=L"\max_{i,x}|\Delta\phi|")
-    semilogy(t, safelog(diag.profile_abs_l2),  "--g", linewidth=1.4, label=L"\|\Delta\phi\|_2")
-    xlabel(L"t"); ylabel("profile absolute error")
-    title("Per-site profile absolute error"); legend(loc="best"); grid(true)
-
-    subplot(3, 2, 6)
-    semilogy(t, safelog(diag.density_error_norm), "-m", linewidth=1.8, label="density")
-    semilogy(t, safelog(diag.velocity_error_norm), "--c", linewidth=1.8, label="velocity")
-    xlabel(L"t"); ylabel("error norm")
-    title("Density / velocity error norms"); legend(loc="best"); grid(true)
-
-    suptitle("D2Q9 CLBE vs direct n-point LBE (apples-to-apples)\nnx=$(nx), k=$(k), A=0.02, ρ₀=1.0001, nt=$(local_n_time), dt=$(dt)")
+    suptitle("D2Q9 CLBE vs direct n-point LBE \nnx=$(nx), k=$(k), A=0.02, ρ₀=1.0001, nt=$(local_n_time), dt=$(dt)")
     tight_layout(rect=(0, 0, 1, 0.96))
     savefig(output_path, bbox_inches="tight")
     println("Saved plot: $output_path")
@@ -98,4 +86,4 @@ end
 # By default, use `n_time` from src/CLBE/clbe_config_2D.jl. To override it for a
 # specific plot, call for example `make_plot(3, 3, 3, output_path; local_n_time=100)`.
 output_path = "data/d2q9_apples_to_apples_nx3_k3_nt$(n_time).pdf"
-make_plot(3, 3, 3, output_path)
+make_plot(3, 3, 3, output_path, local_n_time=200)
