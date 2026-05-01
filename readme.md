@@ -337,6 +337,51 @@ The verification summary is written to:
 
 Zero differences in that summary confirm that both paths use the same shared `C - S` assembly.
 
+### D2Q9 Carleman-matrix norm / spectral-estimate sweep
+
+To compute the D2Q9 full-generator matrix norm for periodic square grids, run from the repository root:
+
+```bash
+julia --project=. check_d2q9_cfull_norm_vs_grid.jl
+```
+
+This script currently sweeps
+
+```julia
+GRID_SWEEP = [(3, 3), (6, 6)]
+```
+
+and assembles the full lifted generator
+
+$$
+C_{\mathrm{full}} = C - S,
+$$
+
+through the same production D2Q9 CLBE path used by time marching:
+
+- `prepare_d2q9_carleman_runtime(...)`
+- `build_full_clbe_generator_sparse(...)`
+
+For each grid, the script reports:
+
+- the predicted / assembled lifted dimension,
+- the number of nonzeros,
+- the exact infinity norm `||C_full||_∞`,
+- a power-iteration estimate of the operator / spectral 2-norm.
+
+The text summary is written to:
+
+- `data/d2q9_cfull_norm_vs_grid_summary.txt`
+
+Important for large D2Q9 runs:
+
+- the script defines threshold markers `MAX_ASSEMBLY_DIM` and `MAX_SPECTRAL_DIM`,
+- when those thresholds are exceeded, it now prints explicit warnings,
+- but it does **not** stop automatically; it continues the assembly and norm scan,
+- this behavior is intended for large-memory or supercomputer workflows where you still want the exact full-matrix scan to proceed.
+
+So these thresholds should now be interpreted as warning levels rather than hard stop conditions.
+
 ### Carleman coefficient-generation mode
 
 The CLBE drivers support two Carleman coefficient-generation modes:

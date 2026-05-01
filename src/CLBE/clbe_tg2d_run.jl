@@ -684,6 +684,34 @@ function select_d2q9_streaming_operator(nx, ny, hx, hy; boundary_setup=false)
     return streaming_operator_D2Q9_interleaved_periodic(nx, ny, hx, hy)
 end
 
+function prepare_d2q9_carleman_runtime(; nx, ny, rho_value=1.0001, coeff_method=coeff_generation_method, local_truncation_order=truncation_order, boundary_setup=false, hx=1.0, hy=1.0)
+    ngrid_local = initialize_d2q9_tg_globals!(
+        nx=nx,
+        ny=ny,
+        rho_value=rho_value,
+        coeff_method=coeff_method,
+        local_truncation_order=local_truncation_order,
+    )
+
+    setup = build_carleman_setup(rho_value=rho_value, nspatial=ngrid_local, method=coeff_method)
+    S_lbm, e_stream = select_d2q9_streaming_operator(nx, ny, hx, hy; boundary_setup=boundary_setup)
+
+    global w_value = setup.numeric_weights
+    global e_value = setup.numeric_velocities
+    global F1_ngrid = setup.carleman_F1
+    global F2_ngrid = setup.carleman_F2
+    global F3_ngrid = setup.carleman_F3
+
+    return (
+        ngrid=ngrid_local,
+        setup=setup,
+        S_lbm=S_lbm,
+        streaming_velocities=e_stream,
+        w_value=w_value,
+        e_value=e_value,
+    )
+end
+
 function run_tg2d_clbe_comparison(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001, local_n_time=n_time, boundary_setup=false, coeff_method=coeff_generation_method, local_truncation_order=truncation_order, reference_model=:direct_lbe, integrator=:euler, direct_lbe_integrator=:euler)
     if nx < 3 || ny < 3
         error("Use nx >= 3 and ny >= 3 for non-degenerate periodic centered-difference TG streaming.")
@@ -693,21 +721,16 @@ function run_tg2d_clbe_comparison(; nx=3, ny=3, amplitude=0.05, rho_value=1.0001
         error("local_truncation_order must satisfy local_truncation_order >= poly_order. Got local_truncation_order = $(local_truncation_order), poly_order = $(poly_order).")
     end
 
-    ngrid_local = initialize_d2q9_tg_globals!(
+    runtime = prepare_d2q9_carleman_runtime(
         nx=nx,
         ny=ny,
         rho_value=rho_value,
         coeff_method=coeff_method,
         local_truncation_order=local_truncation_order,
+        boundary_setup=boundary_setup,
     )
-
-    setup = build_carleman_setup(rho_value=rho_value, nspatial=ngrid_local, method=coeff_generation_method)
-
-    global w_value = setup.numeric_weights
-    global e_value = setup.numeric_velocities
-    global F1_ngrid = setup.carleman_F1
-    global F2_ngrid = setup.carleman_F2
-    global F3_ngrid = setup.carleman_F3
+    ngrid_local = runtime.ngrid
+    setup = runtime.setup
 
     reference = build_tg_reference(
         nx=nx,
