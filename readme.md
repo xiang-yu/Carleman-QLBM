@@ -285,11 +285,41 @@ To compute the D1Q3 full-generator matrix norm as a function of `ngrid`, run fro
 julia --project=. check_d1q3_cfull_norm_vs_ngrid.jl
 ```
 
+The script keeps the historical explicit default sweep
+
+```julia
+[1, 3, 6, 12, 24, 48]
+```
+
+but it now also supports keyword-only generated sweeps.
+
 This script sweeps
 
 ```julia
 ngrid = [1, 3, 6, 12, 24, 48]
 ```
+
+If you want an arithmetic generated sweep, call it from Julia as:
+
+```julia
+include("check_d1q3_cfull_norm_vs_ngrid.jl")
+main(sweep_mode=:arithmetic, start_ngrid=3, step_ngrid=3, end_ngrid=12)
+```
+
+If you want a geometric / doubling sweep, use:
+
+```julia
+include("check_d1q3_cfull_norm_vs_ngrid.jl")
+main(sweep_mode=:geometric, start_ngrid=3, increase_factor=2, num_ngrid=4)
+```
+
+which produces
+
+```julia
+[3, 6, 12, 24]
+```
+
+This geometric option is the more meaningful choice when you want to study flow scaling by doubling spatial resolution for larger Reynolds number.
 
 and reports the full lifted generator
 
@@ -308,9 +338,37 @@ The text summary is written to:
 
 - `data/d1q3_cfull_norm_vs_ngrid_summary.txt`
 
+The cached HDF5 results are written to:
+
+- `data/d1q3_cfull_norm_vs_ngrid.h5`
+
 If `TEXPATH` is set, the plot PDF is written under:
 
 - `$TEXPATH/`
+
+More specifically, the default figure path is:
+
+- `$TEXPATH/QC/QCFD-CarlemanLBE/figs/d1q3_cfull_norm_vs_ngrid.pdf`
+
+If `TEXPATH` is not set, the figure is written under:
+
+- `data/d1q3_cfull_norm_vs_ngrid.pdf`
+
+You can also regenerate the summary and plot later from the cached HDF5 file without re-running the full matrix assembly by using the script's HDF5-only mode:
+
+```bash
+D1Q3_CFULL_LOAD_H5_ONLY=1 julia --project=. check_d1q3_cfull_norm_vs_ngrid.jl
+```
+
+If you only want the spectral-norm plot from the cached HDF5 data, use:
+
+```bash
+julia --project=. plot_cfull_spectral_from_h5.jl data/d1q3_cfull_norm_vs_ngrid.h5
+```
+
+This produces a spectral-only PDF next to the HDF5 file by default:
+
+- `data/d1q3_cfull_norm_vs_ngrid_spectral_only.pdf`
 
 ### D1Q3 generator-path equality verification
 
@@ -345,11 +403,43 @@ To compute the D2Q9 full-generator matrix norm for periodic square grids, run fr
 julia --project=. check_d2q9_cfull_norm_vs_grid.jl
 ```
 
-This script currently sweeps
+The D2Q9 generated sweep control is now keyword-only.
+
+By default this script sweeps square grids generated from
 
 ```julia
-GRID_SWEEP = [(3, 3), (6, 6)]
+start_nx = 3
+step_nx = 3
+end_nx = 6
 ```
+
+so the default square-grid sweep is:
+
+```julia
+[(3, 3), (6, 6)]
+```
+
+If you want an arithmetic generated sweep, call it from Julia as:
+
+```julia
+include("check_d2q9_cfull_norm_vs_grid.jl")
+main(start_nx=3, step_nx=3, end_nx=12, sweep_mode=:arithmetic)
+```
+
+If you want a geometric / doubling sweep, use:
+
+```julia
+include("check_d2q9_cfull_norm_vs_grid.jl")
+main(start_nx=3, increase_factor=2, num_nx=4, sweep_mode=:geometric)
+```
+
+which produces
+
+```julia
+[(3, 3), (6, 6), (12, 12), (24, 24)]
+```
+
+This makes it straightforward to double the lateral grid as Reynolds number is doubled.
 
 and assembles the full lifted generator
 
@@ -373,6 +463,34 @@ The text summary is written to:
 
 - `data/d2q9_cfull_norm_vs_grid_summary.txt`
 
+The cached HDF5 results are written to:
+
+- `data/d2q9_cfull_norm_vs_grid.h5`
+
+If `TEXPATH` is set, the default figure path is:
+
+- `$TEXPATH/QC/QCFD-CarlemanLBE/figs/d2q9_cfull_norm_vs_grid.pdf`
+
+If `TEXPATH` is not set, the figure is written under:
+
+- `data/d2q9_cfull_norm_vs_grid.pdf`
+
+You can also regenerate the summary and plot later from the cached HDF5 file without re-running the full assembly:
+
+```bash
+D2Q9_CFULL_LOAD_H5_ONLY=1 julia --project=. check_d2q9_cfull_norm_vs_grid.jl
+```
+
+If you only want the spectral-norm plot from cached HDF5 data, use:
+
+```bash
+julia --project=. plot_cfull_spectral_from_h5.jl data/d2q9_cfull_norm_vs_grid.h5
+```
+
+This produces a spectral-only PDF next to the HDF5 file by default:
+
+- `data/d2q9_cfull_norm_vs_grid_spectral_only.pdf`
+
 Important for large D2Q9 runs:
 
 - the script defines threshold markers `MAX_ASSEMBLY_DIM` and `MAX_SPECTRAL_DIM`,
@@ -381,6 +499,35 @@ Important for large D2Q9 runs:
 - this behavior is intended for large-memory or supercomputer workflows where you still want the exact full-matrix scan to proceed.
 
 So these thresholds should now be interpreted as warning levels rather than hard stop conditions.
+
+### Shared norm-sweep postprocessing helper
+
+The repository now includes a shared postprocessing helper for cached norm-sweep data:
+
+```bash
+julia --project=. plot_cfull_spectral_from_h5.jl <path-to-h5>
+```
+
+This script:
+
+- reads the saved HDF5 results from either the D1Q3 or D2Q9 norm-sweep workflow,
+- detects the model from the saved metadata,
+- produces a spectral-only log-scale PDF without reassembling the Carleman matrix.
+
+Examples:
+
+```bash
+julia --project=. plot_cfull_spectral_from_h5.jl data/d1q3_cfull_norm_vs_ngrid.h5
+julia --project=. plot_cfull_spectral_from_h5.jl data/d2q9_cfull_norm_vs_grid.h5
+```
+
+You can also call it interactively from Julia:
+
+```julia
+include("plot_cfull_spectral_from_h5.jl")
+main("data/d1q3_cfull_norm_vs_ngrid.h5")
+main("data/d2q9_cfull_norm_vs_grid.h5")
+```
 
 ### Carleman coefficient-generation mode
 

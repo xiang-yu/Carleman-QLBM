@@ -3,6 +3,7 @@ using LinearAlgebra
 using SparseArrays
 using Random
 using Dates
+using HDF5
 using PyPlot
 
 if !haskey(ENV, "QCFD_HOME")
@@ -13,23 +14,33 @@ if !haskey(ENV, "QCFD_SRC")
 end
 
 include("src/CLBE/clbe_multigrid_run.jl")
+include("src/CLBE/cfull_norm_sweep_utils.jl")
+
+const CFSU = CFullNormSweepUtils
 
 const NGRID_SWEEP = [1, 3, 6, 12, 24, 48]
+const DEFAULT_SWEEP_MODE = :explicit
+const DEFAULT_START_NGRID = 3
+const DEFAULT_STEP_NGRID = 3
+const DEFAULT_END_NGRID = 12
+const DEFAULT_INCREASE_FACTOR = 2
+const DEFAULT_NUM_NGRID = 4
 const MAX_SPECTRAL_DIM = 3_500_000
 
 function tex_output_dir()
-    if !haskey(ENV, "TEXPATH")
-        error("TEXPATH is not set. Please export TEXPATH so the figure can be saved to \$TEXPATH/QC/QCFD-CarlemanLBE/figs/.")
-    end
-    outdir = joinpath(ENV["TEXPATH"], "QC", "QCFD-CarlemanLBE", "figs")
-    mkpath(outdir)
-    return outdir
+    return dirname(CFSU.figure_output_path("d1q3_cfull_norm_vs_ngrid.pdf"))
 end
 
 function summary_output_path()
-    outdir = joinpath(pwd(), "data")
-    mkpath(outdir)
-    return joinpath(outdir, "d1q3_cfull_norm_vs_ngrid_summary.txt")
+    return CFSU.data_output_path("d1q3_cfull_norm_vs_ngrid_summary.txt")
+end
+
+function h5_output_path()
+    return CFSU.data_output_path("d1q3_cfull_norm_vs_ngrid.h5")
+end
+
+function plot_output_path()
+    return CFSU.figure_output_path("d1q3_cfull_norm_vs_ngrid.pdf")
 end
 
 function lifted_dimension(Q, truncation_order, ngrid)
@@ -37,42 +48,59 @@ function lifted_dimension(Q, truncation_order, ngrid)
 end
 
 function power_iteration_spectral_norm(A::SparseMatrixCSC; maxiter::Int=80, tol::Float64=1e-8, seed::Int=1234)
-    n = size(A, 2)
-    rng = MersenneTwister(seed)
-    x = randn(rng, n)
-    x ./= norm(x)
+    return CFSU.power_iteration_spectral_norm(A; maxiter=maxiter, tol=tol, seed=seed)
+end
 
-    sigma_prev = 0.0
-    converged = false
-    iterations = 0
+function generate_ngrid_sweep(; start_ngrid::Int=DEFAULT_START_NGRID,
+    step_ngrid::Int=DEFAULT_STEP_NGRID,
+    end_ngrid::Int=DEFAULT_END_NGRID,
+    increase_factor::Int=DEFAULT_INCREASE_FACTOR,
+    num_ngrid::Int=DEFAULT_NUM_NGRID,
+    sweep_mode::Symbol=:arithmetic)
 
-    for iter = 1:maxiter
-        y = A * x
-        sigma = norm(y)
-        iterations = iter
-
-        if iszero(sigma)
-            return 0.0, true, iter
+    if sweep_mode == :arithmetic
+        if step_ngrid <= 0
+            error("step_ngrid must be positive, got $step_ngrid")
         end
-
-        z = transpose(A) * y
-        z_norm = norm(z)
-        if iszero(z_norm)
-            return sigma, true, iter
+        if end_ngrid < start_ngrid
+            error("end_ngrid must be >= start_ngrid, got start_ngrid=$start_ngrid and end_ngrid=$end_ngrid")
         end
-
-        x .= z ./ z_norm
-
-        rel_change = abs(sigma - sigma_prev) / max(sigma, eps(Float64))
-        if iter > 1 && rel_change < tol
-            converged = true
-            sigma_prev = sigma
-            break
+        return collect(start_ngrid:step_ngrid:end_ngrid)
+    elseif sweep_mode == :geometric
+        if increase_factor < 2
+            error("increase_factor must be >= 2 for geometric sweeps, got $increase_factor")
         end
-        sigma_prev = sigma
+        if num_ngrid <= 0
+            error("num_ngrid must be positive, got $num_ngrid")
+        end
+        return [start_ngrid * increase_factor^(i - 1) for i in 1:num_ngrid]
+    else
+        error("Unsupported generated sweep_mode=$sweep_mode. Use :arithmetic or :geometric")
     end
+end
 
-    return sigma_prev, converged, iterations
+function resolve_ngrid_sweep(; ngrid_sweep=NGRID_SWEEP,
+    start_ngrid::Int=DEFAULT_START_NGRID,
+    step_ngrid::Int=DEFAULT_STEP_NGRID,
+    end_ngrid::Int=DEFAULT_END_NGRID,
+    increase_factor::Int=DEFAULT_INCREASE_FACTOR,
+    num_ngrid::Int=DEFAULT_NUM_NGRID,
+    sweep_mode::Symbol=DEFAULT_SWEEP_MODE)
+
+    if sweep_mode == :explicit
+        return collect(ngrid_sweep)
+    elseif sweep_mode == :arithmetic || sweep_mode == :geometric
+        return generate_ngrid_sweep(
+            start_ngrid=start_ngrid,
+            step_ngrid=step_ngrid,
+            end_ngrid=end_ngrid,
+            increase_factor=increase_factor,
+            num_ngrid=num_ngrid,
+            sweep_mode=sweep_mode,
+        )
+    else
+        error("Unsupported sweep_mode=$sweep_mode. Use :explicit, :arithmetic, or :geometric")
+    end
 end
 
 function build_full_generator(ngrid_val; truncation_order_val=3, coeff_method=:numerical)
@@ -105,136 +133,207 @@ function build_full_generator(ngrid_val; truncation_order_val=3, coeff_method=:n
 
     dropzeros!(C_full)
     return C_full, bt, core_cfg, case_cfg
-    end
+end
 
 function write_summary(path, results)
-    open(path, "w") do io
-        println(io, "D1Q3 full CLBE generator norm sweep")
-        println(io, "Generated: ", Dates.format(now(), dateformat"yyyy-mm-dd HH:MM:SS"))
-        println(io, "Target matrix: C_full = C - S")
-        println(io, "Norm columns: inf_norm is exact; spectral_est is a power-iteration estimate of the spectral/operator 2-norm when computed")
-        println(io)
-        println(io, @sprintf("%6s %12s %14s %16s %12s %9s %10s", "ngrid", "dim", "nnz", "spectral_est", "inf_norm", "conv", "iters"))
-        for r in results
-            println(io, @sprintf(
-                "%6d %12d %14d %16.8e %12.8e %9s %10d",
-                r.ngrid,
-                r.dim,
-                r.nnz,
-                r.spectral_est,
-                r.inf_norm,
-                string(r.converged),
-                r.iterations,
-            ))
-        end
-    end
+    headers = ["ngrid", "dim", "nnz", "spectral_est", "inf_norm", "conv", "iters", "status"]
+    rows = [[r.ngrid, r.dim, r.nnz, r.spectral_est, r.inf_norm, string(r.converged), r.iterations, r.status] for r in results]
+    CFSU.write_summary_table(path;
+        title="D1Q3 full CLBE generator norm sweep",
+        intro_lines=[
+            "Target matrix: C_full = C - S",
+            "Norm columns: inf_norm is exact; spectral_est is a power-iteration estimate of the spectral/operator 2-norm when computed",
+        ],
+        headers=headers,
+        rows=rows,
+        left_align=[false, false, false, false, false, true, false, true],
+    )
+end
+
+function save_results_h5(path, results)
+    metadata = Dict(
+        "target_matrix" => "C_full = C - S",
+        "max_spectral_dim" => Int(MAX_SPECTRAL_DIM),
+        "Q" => isempty(results) ? 3 : Int(results[1].Q),
+        "truncation_order" => isempty(results) ? 3 : Int(results[1].truncation_order),
+        "sweep_kind" => "ngrid",
+    )
+    CFSU.write_results_h5(path, results; metadata=metadata)
+end
+
+function load_results_h5(path)
+    return CFSU.load_results_h5(path)
 end
 
 function plot_results(results, output_pdf)
-    ngrids = [r.ngrid for r in results]
-    inf_vals = [r.inf_norm for r in results]
-    spectral_pairs = [(r.ngrid, r.spectral_est) for r in results if isfinite(r.spectral_est)]
-    spectral_ng = [p[1] for p in spectral_pairs]
-    spectral_vals = [p[2] for p in spectral_pairs]
-
-    close("all")
-    figure(figsize=(7.2, 4.8))
-    plot(ngrids, inf_vals, "--s", color="tab:red", linewidth=1.8, markersize=5, label=L"\|C_{\mathrm{full}}\|_\infty")
-    if !isempty(spectral_pairs)
-        plot(spectral_ng, spectral_vals, "-o", color="tab:blue", linewidth=2.0, markersize=6, label=L"\|C_{\mathrm{full}}\|_2\;\mathrm{(power\ estimate)}")
-    end
-    xscale("log", base=2)
-    yscale("log", base=10)
-    xlabel("ngrid")
-    ylabel("matrix norm")
-    title("D1Q3 full CLBE generator norm vs ngrid")
-    grid(true, which="both", alpha=0.3)
-    legend(loc="best", fontsize=10)
-    tight_layout()
-    savefig(output_pdf, bbox_inches="tight")
-    println("Saved figure to: $output_pdf")
+    CFSU.plot_norm_results(results, output_pdf;
+        x_values=[r.ngrid for r in results],
+        xlabel_text="ngrid",
+        title_text="D1Q3 full CLBE generator norm vs ngrid",
+        include_inf=true,
+        include_spectral=true,
+        xscale_base=2,
+    )
 end
 
-function main()
-    output_dir = tex_output_dir()
-    output_pdf = joinpath(output_dir, "d1q3_cfull_norm_vs_ngrid.pdf")
-    summary_path = summary_output_path()
+function plot_results_from_h5(; h5_path=h5_output_path(), output_pdf=plot_output_path())
+    results = load_results_h5(h5_path)
+    plot_results(results, output_pdf)
+    return results
+end
 
-    println("Running D1Q3 full-generator norm sweep for ngrid = $(NGRID_SWEEP)")
-    println("Output PDF: $output_pdf")
+function main(; ngrid_sweep=NGRID_SWEEP,
+    start_ngrid::Int=DEFAULT_START_NGRID,
+    step_ngrid::Int=DEFAULT_STEP_NGRID,
+    end_ngrid::Int=DEFAULT_END_NGRID,
+    increase_factor::Int=DEFAULT_INCREASE_FACTOR,
+    num_ngrid::Int=DEFAULT_NUM_NGRID,
+    sweep_mode::Symbol=DEFAULT_SWEEP_MODE,
+    plot::Bool=(get(ENV, "D1Q3_CFULL_MAKE_PLOT", "1") == "1"),
+    load_h5_only::Bool=(get(ENV, "D1Q3_CFULL_LOAD_H5_ONLY", "0") == "1"))
+
+    resolved_ngrid_sweep = resolve_ngrid_sweep(
+        ngrid_sweep=ngrid_sweep,
+        start_ngrid=start_ngrid,
+        step_ngrid=step_ngrid,
+        end_ngrid=end_ngrid,
+        increase_factor=increase_factor,
+        num_ngrid=num_ngrid,
+        sweep_mode=sweep_mode,
+    )
+
+    output_pdf = plot_output_path()
+    summary_path = summary_output_path()
+    h5_path = h5_output_path()
+
+    if load_h5_only
+        if !isfile(h5_path)
+            error("Cannot load cached D1Q3 norm data because HDF5 file does not exist: $h5_path")
+        end
+        println("Loading cached D1Q3 norm data from: $h5_path")
+        results = load_results_h5(h5_path)
+        write_summary(summary_path, results)
+        if plot
+            plot_results(results, output_pdf)
+        end
+        println("Summary written to: $summary_path")
+        return results
+    end
+
+    println("Running D1Q3 full-generator norm sweep for ngrid = $(resolved_ngrid_sweep)")
+    println("D1Q3 sweep mode = $sweep_mode")
+    println("Output HDF5: $h5_path")
+    if plot
+        println("Output PDF: $output_pdf")
+    end
     println("Summary text: $summary_path")
     println()
 
     results = NamedTuple[]
 
-    for ngrid_val in NGRID_SWEEP
+    for ngrid_val in resolved_ngrid_sweep
         GC.gc()
         println("="^80)
         @printf("Assembling C_full for ngrid = %d\n", ngrid_val)
-        t_build = time()
-        C_full, _, core_cfg, case_cfg = build_full_generator(ngrid_val)
-        build_elapsed = time() - t_build
-
-        dim = size(C_full, 1)
-        nnz_val = nnz(C_full)
-        @printf("  lifted dimension = %d\n", dim)
-        @printf("  nnz(C_full)      = %d\n", nnz_val)
-        @printf("  assembly time    = %.3f s\n", build_elapsed)
-
-        t_norm = time()
-        inf_norm_val = opnorm(C_full, Inf)
-        inf_elapsed = time() - t_norm
-        @printf("  inf norm         = %.8e\n", inf_norm_val)
-
+        build_elapsed = NaN
+        inf_elapsed = NaN
+        spectral_elapsed = NaN
+        dim = 0
+        nnz_val = 0
         spectral_est = NaN
         converged = false
         iterations = 0
-        spectral_elapsed = 0.0
-        if dim <= MAX_SPECTRAL_DIM
-            t_spectral = time()
-            spectral_est, converged, iterations = power_iteration_spectral_norm(C_full)
-            spectral_elapsed = time() - t_spectral
-            @printf("  spectral est     = %.8e\n", spectral_est)
-            @printf("  spectral time    = %.3f s (converged=%s, iterations=%d)\n", spectral_elapsed, string(converged), iterations)
-        else
-            println("  spectral est     = skipped (matrix too large for iterative 2-norm estimate in this sweep)")
-        end
-        @printf("  inf-norm time    = %.3f s\n", inf_elapsed)
+        inf_norm_val = NaN
+        status = "ok"
 
-        push!(results, (
-            ngrid=ngrid_val,
-            dim=dim,
-            nnz=nnz_val,
-            spectral_est=spectral_est,
-            inf_norm=inf_norm_val,
-            converged=converged,
-            iterations=iterations,
-            assembly_time_s=build_elapsed,
-            norm_time_s=inf_elapsed + spectral_elapsed,
-            Q=core_cfg.Q,
-            truncation_order=case_cfg.truncation_order,
-        ))
+        try
+            t_build = time()
+            C_full, _, core_cfg, case_cfg = build_full_generator(ngrid_val)
+            build_elapsed = time() - t_build
+
+            dim = size(C_full, 1)
+            nnz_val = nnz(C_full)
+            @printf("  lifted dimension = %d\n", dim)
+            @printf("  nnz(C_full)      = %d\n", nnz_val)
+            @printf("  assembly time    = %.3f s\n", build_elapsed)
+
+            t_norm = time()
+            inf_norm_val = opnorm(C_full, Inf)
+            inf_elapsed = time() - t_norm
+            @printf("  inf norm         = %.8e\n", inf_norm_val)
+
+            if dim <= MAX_SPECTRAL_DIM
+                t_spectral = time()
+                spectral_est, converged, iterations = power_iteration_spectral_norm(C_full)
+                spectral_elapsed = time() - t_spectral
+                @printf("  spectral est     = %.8e\n", spectral_est)
+                @printf("  spectral time    = %.3f s (converged=%s, iterations=%d)\n", spectral_elapsed, string(converged), iterations)
+            else
+                status = "spectral estimate skipped (matrix too large for iterative 2-norm estimate in this sweep)"
+                println("  spectral est     = skipped (matrix too large for iterative 2-norm estimate in this sweep)")
+            end
+            @printf("  inf-norm time    = %.3f s\n", inf_elapsed)
+
+            push!(results, (
+                ngrid=ngrid_val,
+                dim=dim,
+                nnz=nnz_val,
+                spectral_est=spectral_est,
+                inf_norm=inf_norm_val,
+                converged=converged,
+                iterations=iterations,
+                status=status,
+                assembly_time_s=build_elapsed,
+                inf_norm_time_s=inf_elapsed,
+                spectral_time_s=spectral_elapsed,
+                Q=core_cfg.Q,
+                truncation_order=case_cfg.truncation_order,
+            ))
+        catch err
+            status = sprint(showerror, err)
+            println("  ERROR: $status")
+            push!(results, (
+                ngrid=ngrid_val,
+                dim=dim,
+                nnz=nnz_val,
+                spectral_est=spectral_est,
+                inf_norm=inf_norm_val,
+                converged=converged,
+                iterations=iterations,
+                status=status,
+                assembly_time_s=build_elapsed,
+                inf_norm_time_s=inf_elapsed,
+                spectral_time_s=spectral_elapsed,
+                Q=3,
+                truncation_order=3,
+            ))
+        end
 
         write_summary(summary_path, results)
+        save_results_h5(h5_path, results)
     end
 
     println("\n" * "-"^80)
-    println(@sprintf("%6s %12s %14s %16s %12s %9s %10s", "ngrid", "dim", "nnz", "spectral_est", "inf_norm", "conv", "iters"))
+    println(@sprintf("%6s %12s %14s %16s %12s %9s %10s  %s", "ngrid", "dim", "nnz", "spectral_est", "inf_norm", "conv", "iters", "status"))
     for r in results
         println(@sprintf(
-            "%6d %12d %14d %16.8e %12.8e %9s %10d",
+            "%6d %12d %14d %16s %12s %9s %10d  %s",
             r.ngrid,
             r.dim,
             r.nnz,
-            r.spectral_est,
-            r.inf_norm,
+            isfinite(r.spectral_est) ? @sprintf("%.8e", r.spectral_est) : "NaN",
+            isfinite(r.inf_norm) ? @sprintf("%.8e", r.inf_norm) : "NaN",
             string(r.converged),
             r.iterations,
+            r.status,
         ))
     end
 
-    plot_results(results, output_pdf)
+    if plot
+        plot_results(results, output_pdf)
+    end
     println("Summary written to: $summary_path")
+    return results
 end
 
-main()
+CFSU.run_main_if_script(@__FILE__, main)
